@@ -1,0 +1,63 @@
+{
+  // Run and Debug (Ctrl+Shift+D) -> pick a configuration -> F5.
+  // TypeScript runs directly via tsx (node --import tsx), so breakpoints in src/*.ts work.
+  // Config comes from .env (loaded by src/config.ts).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "▶ Miner Bridge",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/src/index.ts",
+      "preLaunchTask": "deps: up",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "serverReadyAction": {
+        "pattern": "Dashboard: (https?://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
+    },
+    {
+      "name": "▶ Miner Bridge (auto-restart on save)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "preLaunchTask": "deps: up",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+    },
+    {
+      "name": "Mock miners (simulator, 127.0.0.11-30)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/tools/mock-miners.ts",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+    },
+    {
+      "name": "DB migrations only",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/src/db/migrate.ts",
+      "preLaunchTask": "deps: up",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "▶ Miner Bridge + Mock miners",
+      "configurations": ["▶ Miner Bridge", "Mock miners (simulator, 127.0.0.11-30)"],
+      "stopAll": true
+    }
+  ]
+}

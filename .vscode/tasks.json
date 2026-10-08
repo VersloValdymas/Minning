@@ -1,0 +1,46 @@
+{
+  // Terminal -> Run Task... (also used as preLaunchTask by launch.json)
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "deps: up",
+      "detail": "Start TimescaleDB + EMQX (docker compose) and wait until they are ready",
+      "type": "shell",
+      "command": "docker compose up -d --wait",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared", "clear": true }
+    },
+    {
+      "label": "deps: down",
+      "detail": "Stop TimescaleDB + EMQX containers (data is kept in volumes)",
+      "type": "shell",
+      "command": "docker compose down",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "typecheck",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"],
+      "group": "build"
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "docker: build add-on image",
+      "type": "shell",
+      "command": "docker build -t miner-bridge:dev .",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

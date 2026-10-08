@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Miner Bridge</title>
+  <!-- All URLs are relative: the page is served under the HA Ingress path prefix. No CDN: works offline. -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="appbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h2M7 14h2M13 10h4M13 14h4"/></svg></span> Miner Bridge</div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="overview" aria-selected="true">Apžvalga</button>
+      <button role="tab" data-tab="site">Konteineris</button>
+      <button role="tab" data-tab="table">Lentelė</button>
+      <button role="tab" data-tab="heatmap">Šilumėlapis</button>
+      <button role="tab" data-tab="events">Įvykiai</button>
+      <button role="tab" data-tab="discovery">Aptikimas</button>
+      <button role="tab" data-tab="settings">Nustatymai</button>
+    </nav>
+    <div class="appbar-right">
+      <span class="conn" id="conn-poll" title="Paskutinis apklausos ciklas">–</span>
+      <span class="conn" id="conn-mqtt"><span class="dot"></span>MQTT</span>
+      <button class="icon-btn" id="theme-toggle" title="Šviesi / tamsi tema" aria-label="Keisti temą">◐</button>
+    </div>
+    <div class="conn-banner" id="conn-banner" role="alert" hidden>
+      <span class="si offline" aria-hidden="true"><span>⏻</span></span>
+      Ryšys su serveriu nutrūko – jungiamasi iš naujo… Rodomi paskutiniai gauti duomenys.
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis" aria-label="Parko rodikliai"></section>
+
+  <div class="filterbar">
+    <input id="search" type="search" placeholder="Ieškoti: pavadinimas, IP, modelis…" aria-label="Paieška" />
+    <div class="chips" id="status-chips" role="group" aria-label="Būsenos filtras"></div>
+    <label class="select">Rikiuoti
+      <select id="sort">
+        <option value="health">Pagal sveikatą</option>
+        <option value="name">Pavadinimą</option>
+        <option value="ip">IP</option>
+        <option value="hashrate_pct">% nominalo ↑</option>
+        <option value="temp">Lustų temp. ↓</option>
+        <option value="water_out">Vanduo išėjime ↓</option>
+        <option value="efficiency">Efektyvumą ↓</option>
+      </select>
+    </label>
+    <label class="select">Laikotarpis
+      <select id="range">
+        <option value="6">6 h</option>
+        <option value="24" selected>24 h</option>
+        <option value="72">72 h</option>
+      </select>
+    </label>
+  </div>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section class="tab-panel" data-panel="overview">
+      <div class="overview-top">
+        <div class="card chart-card">
+          <div class="card-title">Parko hashrate <span class="muted" id="fleet-hr-sub"></span></div>
+          <div class="chart" id="chart-fleet-hr"></div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-title">Parko galia <span class="muted" id="fleet-pw-sub"></span></div>
+          <div class="chart" id="chart-fleet-pw"></div>
+        </div>
+        <div class="card attention">
+          <div class="card-title">Reikia dėmesio <span class="count-badge" id="attention-count">0</span></div>
+          <ul id="attention-list" class="attention-list"></ul>
+        </div>
+      </div>
+      <div class="miner-grid" id="miner-grid"></div>
+      <p class="empty" id="empty-state" hidden>Kasyklų dar nėra. Eikite į <b>Aptikimas</b> ir nuskenuokite tinklą.</p>
+    </section>
+
+    <!-- CONTAINER (physical layout) -->
+    <section class="tab-panel" data-panel="site" hidden>
+      <div class="card">
+        <div class="heatmap-head">
+          <div class="seg" id="site-metric" role="group" aria-label="Rodiklis"></div>
+          <div class="heat-legend" id="site-legend"></div>
+        </div>
+        <div class="site" id="site"></div>
+        <p class="muted small site-note">Vaizdas atitinka fizinį išdėstymą (viršutinė lentyna – viršuje): <span id="site-numbering">lentyna 1 – apačioje</span>, vieta 1 – kairėje. Kiekviena spinta turi savo siurblį, todėl „Σ debitas“ yra apskaičiuotų kasančių kasyklų debitų suma (≈ siurblio debitas).</p>
+      </div>
+      <div class="card" id="unassigned-card" hidden>
+        <div class="card-title">Nepriskirtos kasyklos <span class="count-badge" id="unassigned-count">0</span></div>
+        <p class="muted small">Paspauskite „Rasti (LED)“ – kasyklos indikatorius pradės mirksėti. Suradę ją spintoje, spauskite „Priskirti vietą…“ arba tuščią langelį plane.</p>
+        <div id="unassigned" class="ua-list"></div>
+      </div>
+    </section>
+
+    <!-- TABLE -->
+    <section class="tab-panel" data-panel="table" hidden>
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- HEATMAP -->
+    <section class="tab-panel" data-panel="heatmap" hidden>
+      <div class="card">
+        <div class="heatmap-head">
+          <div class="seg" id="heat-metric" role="group" aria-label="Šilumėlapio rodiklis"></div>
+          <div class="heat-legend" id="heat-legend"></div>
+        </div>
+        <div class="heatmap" id="heatmap"></div>
+      </div>
+    </section>
+
+    <!-- EVENTS -->
+    <section class="tab-panel" data-panel="events" hidden>
+      <div class="card">
+        <div class="card-title">Įvykių žurnalas</div>
+        <ul id="event-log" class="event-log"></ul>
+      </div>
+    </section>
+
+    <!-- DISCOVERY -->
+    <section class="tab-panel" data-panel="discovery" hidden>
+      <div class="card">
+        <div class="card-title">Tinklo skenavimas</div>
+        <form id="scan-form" class="scan-form">
+          <label>IP rėžis
+            <input id="scan-range" name="range" placeholder="192.168.100.1-254 arba 10.0.0.0/24" required />
+          </label>
+          <label>Protokolas
+            <select id="scan-driver" name="driver"><option value="auto">Auto (visi)</option></select>
+          </label>
+          <label>Prievadas
+            <input id="scan-port" name="port" type="number" min="1" max="65535" placeholder="numatytas" />
+          </label>
+          <div class="scan-actions">
+            <button type="submit" class="btn primary" id="scan-start">Skenuoti</button>
+            <button type="button" class="btn" id="scan-cancel" hidden>Atšaukti</button>
+          </div>
+        </form>
+        <div id="scan-progress" class="progress" hidden>
+          <div class="progress-bar"><div id="scan-bar"></div></div>
+          <div id="scan-text" class="muted small"></div>
+          <ul id="scan-found" class="found-list"></ul>
+        </div>
+      </div>
+    </section>
+    <!-- SETTINGS -->
+    <section class="tab-panel" data-panel="settings" hidden>
+      <form id="coolant-form" class="settings-grid" autocomplete="off">
+        <div class="card">
+          <div class="card-title">Aušinimo skystis</div>
+          <p class="muted small">Pagal skysčio savybes skaičiuojamas aušinimo debitas (debitas = galia ÷ (cp × ρ × ΔT)).
+            Jei tiksliai nežinote, pasirinkite tipą ir apytikslę koncentraciją: tarp 30 % ir 40 % debito įvertis skiriasi tik ~3–5 %.</p>
+
+          <div class="opt-group" role="radiogroup" aria-label="Skysčio tipas">
+            <label class="opt"><input type="radio" name="type" value="water" /><span><b>Vanduo</b><small>be priedų</small></span></label>
+            <label class="opt"><input type="radio" name="type" value="ethylene_glycol" /><span><b>Etilenglikolis</b><small>dažniausias pramoniniuose kontūruose</small></span></label>
+            <label class="opt"><input type="radio" name="type" value="propylene_glycol" /><span><b>Propilenglikolis</b><small>maistinis / mažiau toksiškas</small></span></label>
+          </div>
+          <button type="button" class="btn small-btn" id="coolant-unknown">Nežinau – naudoti tipinį (etilenglikolis 30 %)</button>
+
+          <div class="field" id="pct-field">
+            <div class="field-head"><span>Glikolio koncentracija</span><b id="pct-out">30 %</b></div>
+            <input type="range" id="glycol-pct" name="glycolPct" min="0" max="60" step="5" />
+            <div class="quick-pcts"><button type="button" data-pct="20">20 %</button><button type="button" data-pct="30">30 %</button><button type="button" data-pct="40">40 %</button><button type="button" data-pct="50">50 %</button></div>
+          </div>
+
+          <details class="advanced">
+            <summary>Tikslios reikšmės iš skysčio duomenų lapo (nebūtina)</summary>
+            <div class="two-cols">
+              <label>Šiluminė talpa cp, J/(kg·K)<input type="number" id="cp-override" min="0" max="5000" step="1" placeholder="0 = automatiškai" /></label>
+              <label>Tankis ρ, kg/l<input type="number" id="density-override" min="0" max="2" step="0.001" placeholder="0 = automatiškai" /></label>
+            </div>
+          </details>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Privalomas debitas</div>
+          <p class="muted small">Jei apskaičiuotas debitas mažesnis už privalomą, kasykla iškart pažymima kaip kritinė.
+            Numatytai naudojama modelio specifikacija (S21+ / S21 XP / S21 XP+ Hydro – 8 l/min).</p>
+          <div class="two-cols">
+            <label>Visoms kasykloms, l/min<input type="number" id="req-lpm" min="0" max="100" step="0.5" placeholder="0 = pagal modelį" /><small class="muted">0 = pagal modelio specifikaciją</small></label>
+            <label>Nežinomiems modeliams, l/min<input type="number" id="req-default" min="0" max="100" step="0.5" /></label>
+          </div>
+        </div>
+
+        <div class="card preview-card">
+          <div class="card-title">Peržiūra</div>
+          <div id="coolant-preview" class="muted small">–</div>
+          <div class="settings-actions">
+            <button type="submit" class="btn primary" id="coolant-save">Išsaugoti</button>
+            <button type="button" class="btn" id="coolant-reset">Atstatyti numatytuosius</button>
+          </div>
+          <p class="muted small" id="coolant-source"></p>
+        </div>
+      </form>
+
+      <div class="card layout-card">
+        <div class="card-title">Konteinerio išdėstymas</div>
+        <p class="muted small">Spinta = atskiras aušinimo kontūras su savo siurbliu. Vieta 1 – kairėje.
+          Sumažinti galima tik tada, kai už naujų ribų neliko priskirtų kasyklų.</p>
+        <div class="layout-top">
+          <label class="layout-site">Objekto pavadinimas (HA zona)<input id="layout-site" maxlength="60" /></label>
+          <label class="layout-site">Lentynų numeracija
+            <select id="layout-numbering">
+              <option value="bottom">Nuo apačios (lentyna 1 – apatinė)</option>
+              <option value="top">Nuo viršaus (lentyna 1 – viršutinė)</option>
+            </select>
+            <small class="muted">Pakeitus, priskirtų kasyklų numeriai perskaičiuojami – fizinės vietos nesikeičia.</small>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table class="mini-table layout-table">
+            <thead><tr><th>#</th><th>Pavadinimas</th><th>Lentynos</th><th>Vietos lentynoje</th><th>Užimta</th><th></th></tr></thead>
+            <tbody id="layout-racks"></tbody>
+          </table>
+        </div>
+        <div class="settings-actions">
+          <button type="button" class="btn" id="layout-add">+ Pridėti spintą</button>
+          <button type="button" class="btn primary" id="layout-save">Išsaugoti išdėstymą</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- DEVICE DRAWER -->
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title">
+    <div class="drawer-head">
+      <div>
+        <div class="drawer-title" id="drawer-title"></div>
+        <div class="muted small" id="drawer-sub"></div>
+      </div>
+      <button class="icon-btn" id="drawer-close" aria-label="Uždaryti">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  <dialog id="relay-dialog">
+    <form method="dialog" id="relay-form">
+      <h3>Relės konfigūracija</h3>
+      <p class="muted small">JSON. Pvz. Shelly:<br />
+        <code>{"type":"http","on_url":"http://10.0.0.50/relay/0?turn=on","off_url":"http://10.0.0.50/relay/0?turn=off"}</code><br />
+        arba MQTT: <code>{"type":"mqtt","command_topic":"cmnd/relay1/POWER"}</code>. Tuščia = pašalinti.</p>
+      <textarea id="relay-json" rows="6"></textarea>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn">Atšaukti</button>
+        <button value="save" class="btn primary">Išsaugoti</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="place-dialog">
+    <form method="dialog" id="place-form">
+      <h3>Kasyklos vieta</h3>
+      <div class="place-fields">
+        <label>Kasykla<select id="place-device"></select></label>
+        <label>Spinta<select id="place-rack"></select></label>
+        <label>Lentyna<select id="place-shelf"></select></label>
+        <label>Vieta<select id="place-slot"></select></label>
+      </div>
+      <div class="dialog-actions">
+        <button value="clear" class="btn danger" id="place-clear">Pašalinti vietą</button>
+        <span style="flex:1"></span>
+        <button value="cancel" class="btn" formnovalidate>Atšaukti</button>
+        <button value="save" class="btn primary">Išsaugoti</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="tooltip" class="tooltip" role="status" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

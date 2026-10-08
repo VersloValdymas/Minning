@@ -1,0 +1,30 @@
+# LOCAL DEVELOPMENT ONLY: infrastructure dependencies (TimescaleDB + EMQX).
+# The Node.js app itself runs natively: npm run dev
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg18
+    environment:
+      POSTGRES_USER: miner
+      POSTGRES_PASSWORD: miner
+      POSTGRES_DB: miners
+    ports:
+      - "5442:5432"   # non-default host port to avoid clashing with a local Postgres
+    volumes:
+      - timescale-data:/var/lib/postgresql   # PG18+ layout (no /data suffix)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U miner -d miners"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  emqx:
+    image: emqx/emqx:5.8.6
+    ports:
+      - "1883:1883"     # MQTT
+      - "18083:18083"   # EMQX dashboard (admin / public)
+    volumes:
+      - emqx-data:/opt/emqx/data
+
+volumes:
+  timescale-data:
+  emqx-data:

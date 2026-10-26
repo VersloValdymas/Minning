@@ -1,0 +1,91 @@
+@echo off
+rem ============================================================
+rem  Miner Bridge - licencijos issrasymas
+rem  Dukart spustelekite si faila. Paklaus duomenu ir issiras
+rem  licencijos rakta (issaugo i licenses\ ir nukopijuoja i iskarpine).
+rem  Reikia: Node.js + sugeneruotas privatus raktas (npm run license:genkeys).
+rem ============================================================
+setlocal enabledelayedexpansion
+cd /d "%~dp0"
+chcp 65001 >nul
+title Miner Bridge - licencijos issrasymas
+
+echo.
+echo  ================================================
+echo   Miner Bridge - naujos licencijos issrasymas
+echo  ================================================
+echo.
+
+where node >nul 2>nul
+if errorlevel 1 (
+  echo  [KLAIDA] Nerastas Node.js. Idiekite ji is https://nodejs.org
+  echo.
+  pause
+  exit /b 1
+)
+
+if not exist "tools\.license-private.pem" (
+  echo  [KLAIDA] Nerastas privatus raktas: tools\.license-private.pem
+  echo  Pirma viena karta paleiskite komanda:  npm run license:genkeys
+  echo.
+  pause
+  exit /b 1
+)
+
+if not exist "node_modules\tsx" (
+  echo  Diegiamos priklausomybes ^(viena karta^)...
+  call npm install
+  echo.
+)
+
+set "CUST="
+set /p "CUST=  Kliento vardas (pvz. Eurofondas): "
+if "!CUST!"=="" set "CUST=Klientas"
+
+set "ID="
+set /p "ID=  Uzsakymo/kliento ID (pvz. OBJ-001): "
+if "!ID!"=="" set "ID=OBJ-001"
+
+set "DAYS="
+set /p "DAYS=  Galiojimas dienomis [365] (0 = neterminuota): "
+if "!DAYS!"=="" set "DAYS=365"
+
+set "HWID="
+set /p "HWID=  Irenginio ID (is uzrakto lango; Enter = bet koks): "
+
+set "MAXM="
+set /p "MAXM=  Kasyklu limitas (Enter = be limito): "
+
+set "EXTRA="
+if not "!HWID!"=="" set "EXTRA=!EXTRA! --hwid !HWID!"
+if not "!MAXM!"=="" set "EXTRA=!EXTRA! --max-miners !MAXM!"
+
+for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "TODAY=%%d"
+set "OUTFILE=licenses/!ID!_!TODAY!.txt"
+
+echo.
+echo  Issrasoma licencija...
+echo.
+node --import tsx "tools/issue-license.ts" --cust "!CUST!" --id "!ID!" --days !DAYS!!EXTRA! --out "!OUTFILE!"
+if errorlevel 1 (
+  echo.
+  echo  [KLAIDA] Nepavyko issrasyti licencijos.
+  echo.
+  pause
+  exit /b 1
+)
+
+if exist "!OUTFILE!" (
+  clip < "!OUTFILE!"
+  echo.
+  echo  ------------------------------------------------
+  echo   Licencija issaugota: !OUTFILE!
+  echo   Raktas nukopijuotas i iskarpine ^(Ctrl+V^).
+  echo   Iklijuokite HA uzrakto lange arba
+  echo   Configuration -^> license_key.
+  echo  ------------------------------------------------
+)
+
+echo.
+pause
+endlocal

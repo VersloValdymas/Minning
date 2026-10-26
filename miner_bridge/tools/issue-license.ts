@@ -49,5 +49,14 @@ console.log(`  customer : ${payload.cust} (${payload.id})`);
 console.log(`  install  : ${payload.hwid ?? 'any'}`);
 console.log(`  expires  : ${payload.exp ? new Date(payload.exp * 1000).toISOString().slice(0, 10) : 'never'}`);
 console.log(`  miners   : ${payload.max_miners ?? 'unlimited'}`);
+
+// --out FILE: also save just the token to a file (used by issue-license.cmd)
+const out = arg('out');
+if (out) {
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, token);
+  console.log(`  saved    : ${out}`);
+}
+
 console.log('\nLicense key (paste into the add-on Configuration -> license_key, or the dashboard lock screen):\n');
 console.log(token);

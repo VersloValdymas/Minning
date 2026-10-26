@@ -7,3 +7,6 @@ dist/
 *.license-private.pem
 .license-private.pem
 miner_bridge/tools/.license-private.pem
+
+# Issued license tokens (keep private)
+miner_bridge/licenses/

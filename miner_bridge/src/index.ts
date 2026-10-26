@@ -5,6 +5,7 @@ import { runMigrations } from './db/migrate.js';
 import { applyRetentionPolicy, createPool, waitForDb } from './db/pool.js';
 import { createLogger, setLogLevel } from './logger.js';
 import { MqttBridge } from './mqtt/bridge.js';
+import { discoverMqttFromSupervisor } from './mqtt/supervisor.js';
 import { Poller } from './poller/poller.js';
 import { Scanner } from './scanner/scanner.js';
 import { DeviceService } from './services/device-service.js';
@@ -44,6 +45,7 @@ async function main() {
     log.info(`MQTT command: ${deviceId} -> ${command}`);
     devices.executeCommand(deviceId, command, 'mqtt').catch((err) => log.warn(`Command failed: ${errorMessage(err)}`));
   });
+  await discoverMqttFromSupervisor(config.mqtt);
   mqtt.connect();
 
   // 4. HTTP + polling

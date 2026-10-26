@@ -65,7 +65,8 @@ export const config = {
   http: {
     port: int('HTTP_PORT', 3000),
     /** Reject requests that do not come through HA Ingress (172.30.32.2) or localhost. */
-    ingressOnly: bool('INGRESS_ONLY', false),
+    // Secure by default inside Home Assistant (host_network exposes the port to the LAN, and the API has no own auth)
+    ingressOnly: bool('INGRESS_ONLY', haOptions !== null),
   },
   db: {
     url: str('DATABASE_URL'),

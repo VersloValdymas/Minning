@@ -1,16 +1,16 @@
 {
   // Run and Debug (Ctrl+Shift+D) -> pick a configuration -> F5.
   // TypeScript runs directly via tsx (node --import tsx), so breakpoints in src/*.ts work.
-  // Config comes from .env (loaded by src/config.ts).
+  // Config comes from miner_bridge/.env (loaded by src/config.ts).
   "version": "0.2.0",
   "configurations": [
     {
       "name": "▶ Miner Bridge",
       "type": "node",
       "request": "launch",
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/miner_bridge",
       "runtimeArgs": ["--import", "tsx"],
-      "program": "${workspaceFolder}/src/index.ts",
+      "program": "${workspaceFolder}/miner_bridge/src/index.ts",
       "preLaunchTask": "deps: up",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
@@ -24,7 +24,7 @@
       "name": "▶ Miner Bridge (auto-restart on save)",
       "type": "node",
       "request": "launch",
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/miner_bridge",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "preLaunchTask": "deps: up",
@@ -35,9 +35,9 @@
       "name": "Mock miners (simulator, 127.0.0.11-30)",
       "type": "node",
       "request": "launch",
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/miner_bridge",
       "runtimeArgs": ["--import", "tsx"],
-      "program": "${workspaceFolder}/tools/mock-miners.ts",
+      "program": "${workspaceFolder}/miner_bridge/tools/mock-miners.ts",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
     },
@@ -45,9 +45,9 @@
       "name": "DB migrations only",
       "type": "node",
       "request": "launch",
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/miner_bridge",
       "runtimeArgs": ["--import", "tsx"],
-      "program": "${workspaceFolder}/src/db/migrate.ts",
+      "program": "${workspaceFolder}/miner_bridge/src/db/migrate.ts",
       "preLaunchTask": "deps: up",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**", "**/node_modules/**"]

@@ -23,7 +23,7 @@
       "label": "typecheck",
       "type": "shell",
       "command": "npm run typecheck",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": { "cwd": "${workspaceFolder}/miner_bridge" },
       "problemMatcher": ["$tsc"],
       "group": "build"
     },
@@ -31,7 +31,7 @@
       "label": "build",
       "type": "shell",
       "command": "npm run build",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": { "cwd": "${workspaceFolder}/miner_bridge" },
       "problemMatcher": ["$tsc"],
       "group": { "kind": "build", "isDefault": true }
     },
@@ -39,7 +39,7 @@
       "label": "docker: build add-on image",
       "type": "shell",
       "command": "docker build -t miner-bridge:dev .",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": { "cwd": "${workspaceFolder}/miner_bridge" },
       "problemMatcher": []
     }
   ]

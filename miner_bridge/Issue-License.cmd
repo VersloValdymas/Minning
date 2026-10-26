@@ -58,8 +58,14 @@ set "OUTFILE=licenses/!ID!_!TODAY!.txt"
 
 echo.
 echo  ------------------------------------------------
-echo   Atidarykite KeePass ir NUKOPIJUOKITE privatu rakta
-echo   ^(visa teksta nuo -----BEGIN iki -----END PRIVATE KEY-----^).
+echo   PRIVATUS RAKTAS - IS ISKARPINES (nieko klijuoti nereikia):
+echo.
+echo    1. Atidarykite KeePass.
+echo    2. Nukopijuokite privatu rakta ^(Copy^) - visa teksta nuo
+echo       -----BEGIN iki -----END PRIVATE KEY-----
+echo    3. Griskite i si langa ir spauskite bet koki klavisa.
+echo.
+echo   Scenarijus rakta paims IS ISKARPINES automatiskai.
 echo  ------------------------------------------------
 echo.
 pause

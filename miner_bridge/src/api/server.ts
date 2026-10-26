@@ -7,6 +7,7 @@ import { authGate, securityHeaders } from '../auth/http.js';
 import { authRouter } from './routes/auth.js';
 import { licenseGate, licenseRouter } from './routes/license.js';
 import { devicesRouter } from './routes/devices.js';
+import { earningsRouter } from './routes/earnings.js';
 import { fleetRouter } from './routes/fleet.js';
 import { scanRouter } from './routes/scan.js';
 import { settingsRouter } from './routes/settings.js';
@@ -50,6 +51,7 @@ export function createServer(ctx: AppContext, cfg: AppConfig) {
   app.use('/api/devices', devicesRouter(ctx));
   app.use('/api/scan', scanRouter(ctx));
   app.use('/api/fleet', fleetRouter(ctx));
+  app.use('/api/earnings', earningsRouter(ctx));
   app.use('/api/settings', settingsRouter(ctx));
   app.use('/api/stream', streamRouter(ctx));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));

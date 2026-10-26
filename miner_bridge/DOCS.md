@@ -25,6 +25,13 @@ HA atsarginė kopija yra „šalta“: kopijos metu add-on'as trumpam sustabdoma
 
 Išplėstiniai nustatymai (slenksčiai, apklausos dažnis ir kt.) matomi įjungus **Show unused optional configuration options**.
 
+## Uždarbis (F2Pool)
+
+Tikslus viso parko BTC uždarbis imamas iš F2Pool API. Nustatymai (Configuration): `f2pool_account` (jūsų F2Pool paskyros vardas, pvz. f2poolenergjla0)
+ir `f2pool_token` (F2Pool paskyra → API → sukurti raktą). BTC/EUR kaina – automatiškai iš CoinGecko. Elektros kainą (pelnui) nustatykite
+dashboard'e (Nustatymai → Uždarbis) arba `electricity_eur_kwh`. Kiekvienos kasyklos uždarbis apskaičiuojamas proporcingai pagal hashrate
+(F2Pool visas kasyklas mato kaip vieną „worker“).
+
 ## Licencija
 
 Reikalinga galiojanti licencija. Pirmą kartą atidarius rodomas užrakto langas su **įrenginio ID** – jį nurodykite tiekėjui licencijai gauti, tada gautą raktą įklijuokite lange (arba Configuration → `license_key`). Be licencijos dashboard'as užrakintas.

@@ -50,6 +50,14 @@ function int(key: string, def: number): number {
   return n;
 }
 
+function num(key: string, def: number): number {
+  const v = raw(key);
+  if (v === undefined) return def;
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new Error(`Config ${key} must be a number, got "${v}"`);
+  return n;
+}
+
 function bool(key: string, def: boolean): boolean {
   const v = raw(key);
   if (v === undefined) return def;
@@ -119,6 +127,19 @@ export const config = {
     tuningWarnH: int('TUNING_WARN_H', 12),
     /** Unfinished tuning interrupted this many times (restarts / power loss) = warning. */
     tuningInterruptionsWarn: int('TUNING_INTERRUPTIONS_WARN', 3),
+  },
+  earnings: {
+    /** F2Pool mining user name (account), e.g. "f2poolenergjla0". */
+    f2poolAccount: str('F2POOL_ACCOUNT', ''),
+    /** F2Pool API token (F2P-API-SECRET). Create it in the F2Pool account -> API. */
+    f2poolToken: str('F2POOL_TOKEN', ''),
+    /** Electricity price for profit, EUR/kWh. */
+    electricityEurKwh: num('ELECTRICITY_EUR_KWH', 0.12),
+    /** Fiat for value/profit (CoinGecko vs_currency). */
+    currency: str('EARNINGS_CURRENCY', 'eur'),
+    /** Manual BTC price override (0 = auto from CoinGecko). */
+    btcPriceManual: num('BTC_PRICE_MANUAL', 0),
+    refreshMs: int('EARNINGS_REFRESH_S', 600) * 1000,
   },
   license: {
     /** License enforcement. Disable only for local development. */

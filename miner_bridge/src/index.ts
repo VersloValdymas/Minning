@@ -12,6 +12,7 @@ import { DeviceService } from './services/device-service.js';
 import { SettingsService } from './settings/settings-service.js';
 import { AuthService } from './auth/auth-service.js';
 import { LicenseService } from './license/license-service.js';
+import { EarningsService } from './earnings/earnings-service.js';
 import { clearResetOption } from './auth/supervisor-options.js';
 import { errorMessage } from './util/async.js';
 
@@ -32,6 +33,9 @@ async function main() {
   await license.init();
   log.info(`License: ${license.current.state} - ${license.current.message} (install ${license.current.installId})`);
   setInterval(() => license.refresh().catch(() => undefined), 3600_000);
+
+  const earnings = new EarningsService(pool, config);
+  await earnings.init();
 
   const auth = new AuthService(pool, config.auth);
   if (config.auth.resetRequested) {
@@ -62,7 +66,7 @@ async function main() {
   mqtt.connect();
 
   // 4. HTTP + polling
-  const app = createServer({ config, pool, mqtt, devices, scanner, poller, settings, auth, license }, config);
+  const app = createServer({ config, pool, mqtt, devices, scanner, poller, settings, auth, license, earnings }, config);
   const server: Server = app.listen(config.http.port, () => log.info(`Dashboard: http://localhost:${config.http.port}`));
   poller.start();
 

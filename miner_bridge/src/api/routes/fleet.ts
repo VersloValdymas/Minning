@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { metricsRepo } from '../../db/metrics-repo.js';
 import type { AppContext } from '../context.js';
 
-const clampHours = (v: unknown, def: number) => Math.min(Math.max(Number(v) || def, 1), 72);
+const clampHours = (v: unknown, def: number) => Math.min(Math.max(Number(v) || def, 1), 720);
 /** ~120 points per chart, never finer than one poll interval. */
 const autoBucket = (hours: number, minS: number) => Math.max(Math.ceil((hours * 3600) / 120), minS);
 

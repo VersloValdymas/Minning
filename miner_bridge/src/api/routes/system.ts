@@ -25,6 +25,7 @@ export function systemRouter(ctx: AppContext): Router {
       pollIntervalS: ctx.config.poll.intervalMs / 1000,
       thresholds: ctx.config.alerts,
       coolant: coolantProperties(ctx.config.coolant),
+      earnings: ctx.earnings.current,
       vnishAuth: Boolean(ctx.config.vnish.apiKey || ctx.config.vnish.password),
       lastCycle: ctx.poller.stats,
       drivers: listDrivers().map((d) => ({ name: d.name, label: d.label, defaultPort: d.defaultPort, commands: d.commands })),

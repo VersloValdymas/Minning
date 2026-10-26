@@ -10,3 +10,6 @@ miner_bridge/tools/.license-private.pem
 
 # Issued license tokens (keep private)
 miner_bridge/licenses/
+
+# Licencijos sutarties sablonas (verslo dokumentas, neskelbiamas)
+LICENCIJOS-SUTARTIS-sablonas.md

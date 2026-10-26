@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- **Uždarbis ir pelnas:** tikslus viso parko BTC uždarbis iš F2Pool API (šiandien, vakar, nepanaudotas balansas, iš viso); BTC/EUR kaina iš CoinGecko. Kiekvienai kasyklai padalijama proporcingai pagal hashrate. Pelnas = pajamos − elektra (kaina nustatoma dashboard'e / add-on nustatymuose).
+- KPI „Pajamos/para“ ir „Pelnas/para“; kortelėse ir lentelėje – €/d bei BTC/d (sat); šilumėlapyje – pelno rodiklis.
+- Istoriniai laikotarpiai 7 d. ir 30 d. (duomenys kaupiami visą parą, 90 d.).
+- Nauji add-on nustatymai: f2pool_account, f2pool_token, electricity_eur_kwh.
+
 ## 0.4.0
 
 - **Licencijavimas.** Pasirašytas (Ed25519) licencijos raktas: be galiojančios licencijos dashboard'as užrakintas (rodomas tik licencijos langas su įrenginio ID). Lengvatos periodas po pabaigos – 7 d. (`license_grace_days`).

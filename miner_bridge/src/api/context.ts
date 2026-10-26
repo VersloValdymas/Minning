@@ -1,4 +1,5 @@
 import type { AuthService } from '../auth/auth-service.js';
+import type { EarningsService } from '../earnings/earnings-service.js';
 import type { LicenseService } from '../license/license-service.js';
 import type { AppConfig } from '../config.js';
 import type { Pool } from '../db/pool.js';
@@ -18,4 +19,5 @@ export interface AppContext {
   settings: SettingsService;
   auth: AuthService;
   license: LicenseService;
+  earnings: EarningsService;
 }

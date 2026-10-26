@@ -162,6 +162,48 @@ const detailsOf = (d) => d.latest?.details ?? null;
 const isOfflineish = (d) => d.health.level === 'offline' || d.health.level === 'disabled';
 const T = () => state.info?.thresholds ?? {};
 
+// ---------------------------------------------------------------- earnings
+const SAT = 1e8;
+/** Fleet earnings basis: real account BTC from F2Pool + a full-day BTC rate. */
+function earningsData() {
+  const e = state.info?.earnings;
+  if (!e) return null;
+  const now = Date.now();
+  const d = new Date();
+  const dayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const frac = Math.max((now - dayStart) / 86400000, 0.03);
+  const projToday = e.todayBtc != null ? e.todayBtc / frac : null;
+  const dailyBtc = e.yesterdayBtc && e.yesterdayBtc > 0 ? e.yesterdayBtc : projToday;
+  return { ...e, dailyBtc, projToday };
+}
+const fleetHashingTh = () => state.devices.filter(isHashing).reduce((s, d) => s + (metricsOf(d).hashrate_ths || 0), 0);
+function dailyCostEur(d) {
+  const e = earningsData();
+  const pw = metricsOf(d).power_w;
+  return e && pw != null ? (pw / 1000) * 24 * (e.electricity || 0) : 0;
+}
+/** Per-miner daily earnings (BTC share by hashrate, EUR revenue, electricity cost, profit). */
+function minerEarnings(d) {
+  const e = earningsData();
+  if (!e || !e.configured || e.dailyBtc == null) return null;
+  const fleetTh = fleetHashingTh();
+  const hr = metricsOf(d).hashrate_ths;
+  const cost = dailyCostEur(d);
+  if (!fleetTh || !isHashing(d) || hr == null) return { btc: 0, revenue: 0, cost, profit: e.price ? -cost : null };
+  const btc = e.dailyBtc * (hr / fleetTh);
+  const revenue = e.price ? btc * e.price : null;
+  return { btc, revenue, cost, profit: revenue != null ? revenue - cost : null };
+}
+function fleetEarnings() {
+  const e = earningsData();
+  if (!e) return null;
+  const powerW = state.devices.filter((d) => d.active && !isOfflineish(d) && d.latest).reduce((s, d) => s + (metricsOf(d).power_w || 0), 0);
+  const cost = (powerW / 1000) * 24 * (e.electricity || 0);
+  const revenue = e.dailyBtc != null && e.price ? e.dailyBtc * e.price : null;
+  return { ...e, cost, revenue, profit: revenue != null ? revenue - cost : null };
+}
+const eur = (v) => (v == null ? '–' : nf(v, 2) + ' €');
+
 /** Threshold class for a value: '', 'warn' or 'crit'. `higherIsBad` false = lower is bad. */
 function tcls(v, warn, crit, higherIsBad = true) {
   if (v === null || v === undefined || warn === undefined) return '';
@@ -386,7 +428,7 @@ function renderKpis() {
   const kpi = (label, value, unit, sub, cls = '') =>
     `<div class="kpi ${cls}"><div class="kpi-label">${label}</div><div class="kpi-value">${value}<span class="unit">${unit}</span></div><div class="kpi-sub">${sub}</div></div>`;
 
-  $('#kpis').innerHTML = [
+  const tiles = [
     kpi('Parko hashrate', hrp.v, hrp.u, nomPct !== null ? `${nf(nomPct, 1)} % nominalo` : 'nominalas nežinomas'),
     kpi('Galia', measuredCount ? nf(power / 1000, 2) : '–', 'kW', unmeasured ? `+ ${unmeasured} kasykl. nematuojama (sustabdytos)` : estimated ? `įskaitant ${estimated} budėjimo įvert. · ≈ ${nf((power * 24) / 1000, 0)} kWh/d` : `≈ ${nf((power * 24) / 1000, 0)} kWh per parą`),
     kpi('Efektyvumas', nf(eff, 1), 'J/TH', 'parko vidurkis (W ÷ TH/s)'),
@@ -414,7 +456,18 @@ function renderKpis() {
           return `max out ${nf(Math.max(...hydro.map((d) => metricsOf(d).water_out_c)), 1)} °C · min debitas ${nf(min, 1)} l/min${low ? ` · ${low} per mažas` : ''}`;
         })(), hydro.some((d) => flowInfo(d).cls === 'crit') ? 'alert-crit' : '')
       : kpi('Lustų temp. max', nf(Number.isFinite(chipMax) ? chipMax : null, 0), '°C', 'karščiausia kasykla'),
-  ].join('');
+  ];
+
+  const fe = fleetEarnings();
+  if (fe && fe.configured) {
+    const incomeSub = fe.dailyBtc != null ? `${nf(fe.dailyBtc, 5)} BTC/d · šiandien ${nf(fe.todayBtc, 5)} BTC` : fe.f2poolError ? 'F2Pool klaida' : '–';
+    const profitVal = fe.profit == null ? '–' : `<span style="color:${fe.profit >= 0 ? 'var(--good-ink)' : 'var(--crit)'}">${nf(fe.profit, 0)}</span>`;
+    tiles.push(
+      kpi('Pajamos / para', fe.revenue == null ? '–' : nf(fe.revenue, 0), '€', incomeSub),
+      kpi('Pelnas / para', profitVal, '€', fe.revenue != null ? `pajamos ${nf(fe.revenue, 0)} − elektra ${nf(fe.cost, 0)} €` : 'nustatykite elektros kainą', fe.profit != null && fe.profit < 0 ? 'alert-crit' : ''),
+    );
+  }
+  $('#kpis').innerHTML = tiles.join('');
 
   const conn = $('#conn-mqtt');
   const mq = state.info?.mqtt;
@@ -530,6 +583,7 @@ function minerCard(d) {
       ${isTuning(d) ? `<span title="Autotuning trukmė">⟳ derina ${tuningSeconds(d) == null ? '–' : duration(Math.round(tuningSeconds(d)))}</span>` : `<span title="Laikas kasimo būsenoje">⏱ ${off ? ago(d.last_seen) : duration(m.uptime_s)}</span>`}
       ${det?.pool ? `<span title="${esc(det.pool)}">⛁ ${esc(poolHost(det.pool))}</span>` : ''}
       ${hydro && h.reject_pct !== null ? `<span title="Atmesti share'ai">atm. ${nf(h.reject_pct, 2)} %</span>` : ''}
+      ${(() => { const me = minerEarnings(d); return me && me.profit != null ? `<span title="Pelnas per 24 h: pajamos (dalis pagal hashrate) − elektra" style="color:${me.profit >= 0 ? 'var(--good-ink)' : 'var(--crit)'}">💰 ${me.profit >= 0 ? '+' : ''}${nf(me.profit, 2)} €/d</span>` : ''; })()}
       <span>${esc(d.firmware ?? d.driver)}</span>
     </div>
   </article>`;
@@ -694,6 +748,8 @@ const COLUMNS = [
   { key: 'flow', label: 'Debitas l/min', num: true, sort: (d) => flowInfo(d).v, html: (d) => { const f = flowInfo(d); return f.v === null ? '–' : `<span title="${esc(f.title)}">${f.isLast ? '≤ ' : ''}${nf(f.v, 1)}${f.req ? ` / ${nf(f.req, 0)}` : ''}</span>`; }, cls: (d) => flowInfo(d).cls },
   { key: 'dt', label: 'ΔT', num: true, sort: (d) => d.health.water_delta_c, html: (d) => nf(d.health.water_delta_c, 1), cls: (d) => tcls(d.health.water_delta_c, T().waterDeltaWarnC) },
   { key: 'rej', label: 'Atmesta %', num: true, sort: (d) => d.health.reject_pct, html: (d) => nf(d.health.reject_pct, 2), cls: (d) => tcls(d.health.reject_pct, T().rejectWarnPct, T().rejectCritPct) },
+  { key: 'btcd', label: 'BTC/d (sat)', num: true, sort: (d) => minerEarnings(d)?.btc ?? -1, html: (d) => { const me = minerEarnings(d); return me && me.btc ? nf(me.btc * SAT, 0) : '–'; } },
+  { key: 'profd', label: 'Pelnas €/d', num: true, sort: (d) => minerEarnings(d)?.profit ?? -1e9, html: (d) => { const me = minerEarnings(d); return me && me.profit != null ? nf(me.profit, 2) : '–'; }, cls: (d) => { const me = minerEarnings(d); return me && me.profit != null && me.profit < 0 ? 'crit' : ''; } },
   { key: 'up', label: 'Veikia', num: true, sort: (d) => metricsOf(d).uptime_s, html: (d) => (isOfflineish(d) ? '–' : duration(metricsOf(d).uptime_s)) },
   { key: 'issues', label: 'Problemos', sort: (d) => d.health.issues.length, html: (d) => esc(d.health.issues.filter((i) => i.level !== 'info').map((i) => i.text).join(' · ')), tdClass: 'issues' },
 ];
@@ -742,6 +798,7 @@ const HEAT_METRICS = [
   { key: 'flow', label: 'Debitas', unit: 'l/min', digits: 1, get: (d) => flowInfo(d).v },
   { key: 'eff', label: 'Efektyvumas', unit: 'J/TH', digits: 1, get: (d) => metricsOf(d).efficiency_jth },
   { key: 'pw', label: 'Galia', unit: 'kW', digits: 2, get: (d) => (metricsOf(d).power_w == null ? null : metricsOf(d).power_w / 1000) },
+  { key: 'profit', label: 'Pelnas €/d', unit: '€/d', digits: 2, get: (d) => minerEarnings(d)?.profit ?? null },
 ];
 const isDark = () => {
   const t = document.documentElement.dataset.theme;
@@ -1478,7 +1535,7 @@ function setTab(tab) {
   $$('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   $$('.tab-panel').forEach((p) => (p.hidden = p.dataset.panel !== tab));
   if (tab === 'events') renderEvents();
-  if (tab === 'settings') { loadSettings(); renderLayoutEditor(); renderAccessCard(); renderSecurityCard(); renderLicenseCard(); }
+  if (tab === 'settings') { loadSettings(); renderLayoutEditor(); renderAccessCard(); renderSecurityCard(); renderLicenseCard(); renderEarningsCard(); }
   renderAll();
 }
 
@@ -1721,6 +1778,19 @@ function wire() {
     renderLayoutEditor();
   });
   $('#layout-save').addEventListener('click', saveLayout);
+  $('#elec-save').addEventListener('click', async () => {
+    try {
+      const r = await fetch('api/earnings/electricity', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: Number($('#elec-input').value) }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'klaida');
+      if (state.info) state.info.earnings = data;
+      toast('Elektros kaina išsaugota');
+      renderEarningsCard();
+      renderKpis();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
   $('#license-activate-btn').addEventListener('click', async () => {
     const key = $('#license-key-input').value.trim();
     if (await activateLicense(key, null, (d) => toast(`Licencija aktyvuota: ${d.customer ?? ''}`))) {
@@ -1920,6 +1990,31 @@ async function ensureAuth() {
   } catch {
     return true; // server down -> the offline banner handles it
   }
+}
+
+function renderEarningsCard() {
+  const e = state.info?.earnings;
+  if (!e) return;
+  $('#elec-input').value = e.electricity ?? '';
+  const fe = fleetEarnings();
+  const priceTxt = e.price ? `${nf(e.price, 0)} ${(e.currency || 'eur').toUpperCase()}` : e.priceError ? `klaida (${esc(e.priceError)})` : '–';
+  const status = !e.configured
+    ? `<span class="badge">${statusIcon('warn')} F2Pool nesukonfigūruotas</span>`
+    : e.f2poolError
+      ? `<span class="badge">${statusIcon('crit')} F2Pool klaida: ${esc(e.f2poolError)}</span>`
+      : `<span class="badge">${statusIcon('ok')} F2Pool prisijungta</span>`;
+  const row = (label, btc) => `<tr><th>${label}</th><td>${btc != null ? nf(btc, 6) + ' BTC' : '–'}${btc != null && e.price ? ' · ' + eur(btc * e.price) : ''}</td></tr>`;
+  $('#earnings-info').innerHTML = `<div class="preview-summary">${status}<span class="badge">${statusIcon('ok')} BTC kaina: ${priceTxt}</span></div>
+    ${e.configured ? `<table class="mini-table"><tbody>
+      ${row('Šiandien (nuo 00:00 UTC)', e.todayBtc)}
+      ${row('Vakar (visa para)', e.yesterdayBtc)}
+      <tr><th>Nepanaudota (balansas)</th><td>${e.unpaidBtc != null ? nf(e.unpaidBtc, 6) + ' BTC' : '–'}</td></tr>
+      <tr><th>Iš viso iškasta</th><td>${e.totalBtc != null ? nf(e.totalBtc, 6) + ' BTC' : '–'}</td></tr>
+      <tr><th>Pelnas / para (įvertis)</th><td>${fe && fe.profit != null ? `<b style="color:${fe.profit >= 0 ? 'var(--good-ink)' : 'var(--crit)'}">${eur(fe.profit)}</b> (pajamos ${eur(fe.revenue)} − elektra ${eur(fe.cost)})` : '–'}</td></tr>
+    </tbody></table>` : ''}`;
+  $('#earnings-help').innerHTML = e.configured
+    ? 'Viso parko uždarbis – tikslus iš F2Pool. Kiekvienai kasyklai padalijamas <b>proporcingai pagal hashrate</b> (F2Pool visas kasyklas mato kaip vieną „worker“). Pelnas = pajamos − elektra.'
+    : 'Įveskite add-on nustatymuose: <code>f2pool_account</code> (pvz. f2poolenergjla0) ir <code>f2pool_token</code> (F2Pool paskyra → API → sukurti raktą). BTC/EUR kaina imama automatiškai.';
 }
 
 function renderSecurityCard() {

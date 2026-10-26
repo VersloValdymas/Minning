@@ -474,3 +474,4 @@ body.stale main, body.stale .kpis, body.stale .filterbar { opacity: .55; transit
 .lic-id code { font-size: 14px; color: var(--ink); background: var(--surface-2); padding: 2px 8px; border-radius: 6px; letter-spacing: 1px; }
 .lic-card textarea { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font-family: ui-monospace, monospace; font-size: 12px; width: 100%; resize: vertical; }
 .license-card textarea { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-family: ui-monospace, monospace; font-size: 12px; width: 100%; }
+.earnings-card { margin-top: 12px; }

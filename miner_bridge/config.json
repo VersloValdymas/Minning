@@ -1,6 +1,6 @@
 {
   "name": "Miner Bridge",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "slug": "miner_bridge",
   "description": "ASIC miner monitoring & control: discovery, health, coolant flow, TimescaleDB history, MQTT for Home Assistant",
   "url": "https://github.com/VersloValdymas/Minning",
@@ -29,6 +29,9 @@
     "mqtt_password": "",
     "license_key": "",
     "vnish_api_key": "",
+    "f2pool_account": "",
+    "f2pool_token": "",
+    "electricity_eur_kwh": 0.12,
     "retention_days": 90,
     "db_mode": "embedded",
     "admin_password_reset": false
@@ -41,6 +44,9 @@
     "mqtt_password": "password?",
     "license_key": "str?",
     "vnish_api_key": "password?",
+    "f2pool_account": "str?",
+    "f2pool_token": "password?",
+    "electricity_eur_kwh": "float(0,10)",
     "retention_days": "int(0,3650)",
     "db_mode": "list(embedded|external)",
     "db_host": "str?",

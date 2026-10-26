@@ -109,6 +109,40 @@ export class MqttBridge extends EventEmitter<MqttBridgeEvents> {
     this.publish(topics(this.topicCfg, deviceId).state, state, { retain: true });
   }
 
+  /** Fleet-level economics as one HA device ("Miner Bridge – Parkas"). Published back for HA automations / energy. */
+  private fleetDiscoveryDone = false;
+  publishFleetEconomics(data: Record<string, number | null>): void {
+    const base = this.cfg.baseTopic;
+    const stateTopic = `${base}/fleet/economics`;
+    if (!this.fleetDiscoveryDone) {
+      const device = { identifiers: [`${base}_fleet`], name: 'Miner Bridge – Parkas', manufacturer: 'Miner Bridge' };
+      const sensors: Array<[string, string, string | undefined, string | undefined]> = [
+        ['revenue_day', 'Pajamos per parą', 'EUR', 'monetary'],
+        ['cost_day', 'Elektros sąnaudos per parą', 'EUR', 'monetary'],
+        ['profit_day', 'Pelnas per parą', 'EUR', 'monetary'],
+        ['cumulative_profit', 'Susigrąžinta (viso)', 'EUR', 'monetary'],
+        ['payback_days', 'Atsipirks po (d.)', 'd', undefined],
+        ['today_btc', 'Šiandien iškasta', 'BTC', undefined],
+        ['unpaid_btc', 'Nepanaudotas balansas', 'BTC', undefined],
+      ];
+      for (const [key, name, unit, dc] of sensors) {
+        const id = `${base}_fleet_${key}`;
+        this.publish(`${this.cfg.discoveryPrefix}/sensor/${id}/config`, JSON.parse(JSON.stringify({
+          name, unique_id: id, state_topic: stateTopic, value_template: `{{ value_json.${key} }}`,
+          unit_of_measurement: unit, device_class: dc, state_class: key === 'cumulative_profit' ? 'total' : 'measurement',
+          availability: [{ topic: `${base}/bridge/status` }], device, origin: { name: 'Miner Bridge', sw_version: this.version },
+        })), { retain: true, qos: 1 });
+      }
+      this.fleetDiscoveryDone = true;
+    }
+    const round = (v: number | null, d = 2) => (v == null ? null : Math.round(v * 10 ** d) / 10 ** d);
+    this.publish(stateTopic, {
+      revenue_day: round(data.revenue), cost_day: round(data.cost), profit_day: round(data.profit),
+      cumulative_profit: round(data.cumulativeProfit), payback_days: round(data.paybackDays, 0),
+      today_btc: round(data.todayBtc, 8), unpaid_btc: round(data.unpaidBtc, 8),
+    }, { retain: true });
+  }
+
   publishAvailability(deviceId: string, online: boolean): void {
     this.publish(topics(this.topicCfg, deviceId).availability, online ? 'online' : 'offline', { retain: true, qos: 1 });
   }

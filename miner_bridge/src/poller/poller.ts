@@ -9,6 +9,7 @@ import { getDriver } from '../miners/index.js';
 import type { MinerMetrics } from '../miners/types.js';
 import type { MqttBridge } from '../mqtt/bridge.js';
 import { capabilitiesOf, type DeviceService } from '../services/device-service.js';
+import type { EarningsService } from '../earnings/earnings-service.js';
 import { isProblem } from '../health/health.js';
 import { estimateFlowLpm } from '../health/coolant.js';
 import { errorMessage, mapLimit } from '../util/async.js';
@@ -36,6 +37,7 @@ export class Poller {
     private readonly pool: Pool,
     private readonly devices: DeviceService,
     private readonly mqtt: MqttBridge,
+    private readonly earnings: EarningsService,
   ) {}
 
   get stats() {
@@ -112,6 +114,7 @@ export class Poller {
     const updates: PollResultUpdate[] = [];
     let online = 0;
     let totalHashrate = 0;
+    let totalPowerW = 0;
 
     for (const o of outcomes) {
       const d = o.device;
@@ -126,6 +129,7 @@ export class Poller {
         const problems = health.issues.filter((i) => i.level !== 'info').map((i) => i.text);
         online++;
         totalHashrate += o.metrics.hashrate_ths ?? 0;
+        totalPowerW += o.metrics.power_w ?? 0;
         metricRows.push({ time: now, deviceId: d.id, online: true, metrics: o.metrics });
         updates.push({ id: d.id, status, lastError: problems.join('; ') || null, failures, lastSeen: now });
         await this.maybeExtendCapabilities(d, o.metrics);
@@ -152,6 +156,9 @@ export class Poller {
     await devicesRepo.applyPollResults(this.pool, updates);
     await this.readFirmwareLogs(outcomes.filter((o) => o.ok).map((o) => o.device));
 
+    const minersKw = totalPowerW / 1000;
+    this.earnings.accrue(minersKw).catch(() => undefined);
+    if (this.earnings.current.configured) this.mqtt.publishFleetEconomics(this.earnings.fleetEconomics(minersKw) as unknown as Record<string, number | null>);
     this.lastCycle = {
       at: now.toISOString(),
       durationMs: Date.now() - started,

@@ -197,10 +197,15 @@ function minerEarnings(d) {
 function fleetEarnings() {
   const e = earningsData();
   if (!e) return null;
-  const powerW = state.devices.filter((d) => d.active && !isOfflineish(d) && d.latest).reduce((s, d) => s + (metricsOf(d).power_w || 0), 0);
-  const cost = (powerW / 1000) * 24 * (e.electricity || 0);
+  const minersKw = state.devices.filter((d) => d.active && !isOfflineish(d) && d.latest).reduce((s, d) => s + (metricsOf(d).power_w || 0), 0) / 1000;
+  const totalKw = e.totalPowerKw != null ? e.totalPowerKw : minersKw;
+  const overheadKw = Math.max(0, totalKw - minersKw);
+  const elec = e.electricity || 0;
+  const minerCost = minersKw * 24 * elec;
+  const overheadCost = overheadKw * 24 * elec;
+  const cost = minerCost + overheadCost;
   const revenue = e.dailyBtc != null && e.price ? e.dailyBtc * e.price : null;
-  return { ...e, cost, revenue, profit: revenue != null ? revenue - cost : null };
+  return { ...e, minersKw, totalKw, overheadKw, minerCost, overheadCost, cost, revenue, profit: revenue != null ? revenue - cost : null };
 }
 const eur = (v) => (v == null ? '–' : nf(v, 2) + ' €');
 
@@ -1778,13 +1783,14 @@ function wire() {
     renderLayoutEditor();
   });
   $('#layout-save').addEventListener('click', saveLayout);
-  $('#elec-save').addEventListener('click', async () => {
+  $('#econ-save').addEventListener('click', async () => {
     try {
-      const r = await fetch('api/earnings/electricity', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: Number($('#elec-input').value) }) });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'klaida');
+      const put = (path, value) => fetch(`api/earnings/${path}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: Number(value) }) }).then((r) => r.json().then((d) => { if (!r.ok) throw new Error(d.error || 'klaida'); return d; }));
+      await put('electricity', $('#elec-input').value || 0);
+      await put('investment', $('#invest-input').value || 0);
+      const data = await put('recovered', $('#recovered-input').value || 0);
       if (state.info) state.info.earnings = data;
-      toast('Elektros kaina išsaugota');
+      toast('Ekonomikos nustatymai išsaugoti');
       renderEarningsCard();
       renderKpis();
     } catch (e) {
@@ -1995,26 +2001,65 @@ async function ensureAuth() {
 function renderEarningsCard() {
   const e = state.info?.earnings;
   if (!e) return;
-  $('#elec-input').value = e.electricity ?? '';
+  if (document.activeElement?.id !== 'elec-input') $('#elec-input').value = e.electricity ?? '';
+  if (document.activeElement?.id !== 'invest-input') $('#invest-input').value = e.investment || '';
+  if (document.activeElement?.id !== 'recovered-input') $('#recovered-input').value = e.recoveredStart || '';
+  $('#elec-src').textContent = e.electricitySource === 'ha' ? '(iš HA)' : '(fiksuota)';
   const fe = fleetEarnings();
   const priceTxt = e.price ? `${nf(e.price, 0)} ${(e.currency || 'eur').toUpperCase()}` : e.priceError ? `klaida (${esc(e.priceError)})` : '–';
-  const status = !e.configured
+  const f2status = !e.configured
     ? `<span class="badge">${statusIcon('warn')} F2Pool nesukonfigūruotas</span>`
     : e.f2poolError
-      ? `<span class="badge">${statusIcon('crit')} F2Pool klaida: ${esc(e.f2poolError)}</span>`
+      ? `<span class="badge">${statusIcon('crit')} F2Pool: ${esc(e.f2poolError)}</span>`
       : `<span class="badge">${statusIcon('ok')} F2Pool prisijungta</span>`;
-  const row = (label, btc) => `<tr><th>${label}</th><td>${btc != null ? nf(btc, 6) + ' BTC' : '–'}${btc != null && e.price ? ' · ' + eur(btc * e.price) : ''}</td></tr>`;
-  $('#earnings-info').innerHTML = `<div class="preview-summary">${status}<span class="badge">${statusIcon('ok')} BTC kaina: ${priceTxt}</span></div>
+  const powerTxt = e.totalPowerKw != null ? `<span class="badge">${statusIcon('ok')} Viso objekto galia (HA): ${nf(e.totalPowerKw, 1)} kW</span>` : `<span class="badge">${statusIcon('warn')} Objekto galia iš HA nenustatyta (tik kasyklos)</span>`;
+  const btcRow = (label, btc) => `<tr><th>${label}</th><td>${btc != null ? nf(btc, 6) + ' BTC' : '–'}${btc != null && e.price ? ' · ' + eur(btc * e.price) : ''}</td></tr>`;
+
+  // ROI
+  const inv = e.investment || 0;
+  const recovered = e.cumulativeProfit || 0;
+  const pct = inv > 0 ? Math.min(100, (recovered / inv) * 100) : 0;
+  const remaining = Math.max(0, inv - recovered);
+  const dailyProfit = fe?.profit ?? null;
+  const paybackDays = inv > 0 && dailyProfit && dailyProfit > 0 ? remaining / dailyProfit : null;
+  const paybackTxt = inv <= 0 ? 'nurodykite investiciją' : recovered >= inv ? '✓ atsipirko' : paybackDays == null ? '–' : paybackDays > 365 ? `≈ ${nf(paybackDays / 365, 1)} m.` : `≈ ${nf(paybackDays, 0)} d. (${nf(paybackDays / 30, 1)} mėn.)`;
+
+  $('#earnings-info').innerHTML = `<div class="preview-summary">${f2status}<span class="badge">${statusIcon('ok')} BTC kaina: ${priceTxt}</span>${powerTxt}</div>
     ${e.configured ? `<table class="mini-table"><tbody>
-      ${row('Šiandien (nuo 00:00 UTC)', e.todayBtc)}
-      ${row('Vakar (visa para)', e.yesterdayBtc)}
+      ${btcRow('Šiandien (nuo 00:00 UTC)', e.todayBtc)}
+      ${btcRow('Vakar (visa para)', e.yesterdayBtc)}
       <tr><th>Nepanaudota (balansas)</th><td>${e.unpaidBtc != null ? nf(e.unpaidBtc, 6) + ' BTC' : '–'}</td></tr>
       <tr><th>Iš viso iškasta</th><td>${e.totalBtc != null ? nf(e.totalBtc, 6) + ' BTC' : '–'}</td></tr>
-      <tr><th>Pelnas / para (įvertis)</th><td>${fe && fe.profit != null ? `<b style="color:${fe.profit >= 0 ? 'var(--good-ink)' : 'var(--crit)'}">${eur(fe.profit)}</b> (pajamos ${eur(fe.revenue)} − elektra ${eur(fe.cost)})` : '–'}</td></tr>
-    </tbody></table>` : ''}`;
+    </tbody></table>
+    <div class="card-title" style="margin-top:12px">Per parą (įvertis)</div>
+    <table class="mini-table"><tbody>
+      <tr><th>Pajamos</th><td>${eur(fe?.revenue)}</td></tr>
+      <tr><th>Kasyklų elektra</th><td>− ${eur(fe?.minerCost)} <span class="muted">(${nf(fe?.minersKw, 1)} kW)</span></td></tr>
+      <tr><th>Pridėtinės (aušinimas, siurbliai)</th><td>${e.totalPowerKw != null ? `− ${eur(fe?.overheadCost)} <span class="muted">(${nf(fe?.overheadKw, 1)} kW)</span>` : '<span class="muted">nenustatyta (reikia HA objekto galios)</span>'}</td></tr>
+      <tr><th><b>Grynasis pelnas</b></th><td><b style="color:${(dailyProfit ?? 0) >= 0 ? 'var(--good-ink)' : 'var(--crit)'}">${eur(dailyProfit)}</b></td></tr>
+    </tbody></table>
+    <div class="card-title" style="margin-top:12px">Atsiperkamumas</div>
+    <table class="mini-table"><tbody>
+      <tr><th>Investicija</th><td>${inv > 0 ? eur(inv) : '–'}</td></tr>
+      <tr><th>Susigrąžinta</th><td>${eur(recovered)} ${inv > 0 ? `(${nf(pct, 1)} %)` : ''}</td></tr>
+      <tr><th>Liko atsipirkti</th><td>${inv > 0 ? eur(remaining) : '–'} · <b>${paybackTxt}</b></td></tr>
+    </tbody></table>
+    ${inv > 0 ? `<div class="bar" style="margin-top:6px"><i style="width:${pct}%;background:${recovered >= inv ? 'var(--good)' : 'var(--s1)'}"></i></div>` : ''}` : ''}`;
+
   $('#earnings-help').innerHTML = e.configured
-    ? 'Viso parko uždarbis – tikslus iš F2Pool. Kiekvienai kasyklai padalijamas <b>proporcingai pagal hashrate</b> (F2Pool visas kasyklas mato kaip vieną „worker“). Pelnas = pajamos − elektra.'
-    : 'Įveskite add-on nustatymuose: <code>f2pool_account</code> (pvz. f2poolenergjla0) ir <code>f2pool_token</code> (F2Pool paskyra → API → sukurti raktą). BTC/EUR kaina imama automatiškai.';
+    ? 'Uždarbis – tikslus iš F2Pool; kiekvienai kasyklai padalijamas <b>proporcingai pagal hashrate</b>. Pelnas = pajamos − visa objekto elektra (kainą ir galią ima iš HA). Susigrąžinta = pradinė + kaupiamas dienos pelnas.'
+    : 'Įveskite add-on nustatymuose <code>f2pool_account</code> ir <code>f2pool_token</code> (F2Pool → API). Elektros kainą ir objekto galią susiekite su HA jutikliais: <code>ha_price_entity</code>, <code>ha_total_power_entity</code>.';
+
+  if (e.configured || inv > 0) loadEconChart();
+}
+
+async function loadEconChart() {
+  try {
+    const rows = await api('earnings/history?days=30');
+    const pts = rows.map((r) => [new Date(r.day + 'T12:00:00Z').getTime(), r.profit]);
+    if (pts.filter((p) => p[1] != null).length < 2) { $('#econ-chart').innerHTML = '<div class="nodata" style="height:160px">Dar kaupiama – grafikas atsiras per kelias dienas</div>'; return; }
+    lineChart($('#econ-chart'), { label: 'Dienos pelnas', unit: '€', digits: 0, yMin: 0, height: 160, series: [{ name: 'Pelnas', color: 'var(--s1)', points: pts }] });
+  } catch { /* ignore */ }
 }
 
 function renderSecurityCard() {

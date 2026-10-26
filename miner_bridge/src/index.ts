@@ -52,7 +52,7 @@ async function main() {
   });
   await devices.warmCache();
   const scanner = new Scanner(config.scan, (target, identity) => devices.registerDiscovered(target, identity));
-  const poller = new Poller(config, pool, devices, mqtt);
+  const poller = new Poller(config, pool, devices, mqtt, earnings);
 
   // 3. MQTT: (re)publish discovery on every connect and whenever HA restarts
   const republish = () => devices.publishAllDiscovery().catch((err) => log.error('Discovery publish failed', err));

@@ -1,6 +1,6 @@
 {
   "name": "miner-bridge",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "ASIC miner discovery, telemetry (TimescaleDB) and MQTT bridge for Home Assistant",
   "private": true,
   "type": "module",

@@ -28,8 +28,7 @@ Išplėstiniai nustatymai (slenksčiai, apklausos dažnis ir kt.) matomi įjungu
 ## Uždarbis (F2Pool)
 
 Tikslus viso parko BTC uždarbis imamas iš F2Pool API. Nustatymai (Configuration): `f2pool_account` (jūsų F2Pool paskyros vardas, pvz. f2poolenergjla0)
-ir `f2pool_token` (F2Pool paskyra → API → sukurti raktą). BTC/EUR kaina – automatiškai iš CoinGecko. Elektros kainą (pelnui) nustatykite
-dashboard'e (Nustatymai → Uždarbis) arba `electricity_eur_kwh`. Kiekvienos kasyklos uždarbis apskaičiuojamas proporcingai pagal hashrate
+ir `f2pool_token` (F2Pool paskyra → API → sukurti raktą). BTC/EUR kaina – automatiškai iš CoinGecko. Elektros kainą ir viso objekto galią susiekite su HA jutikliais (`ha_price_entity`, `ha_total_power_entity`) – tada pelnas skaičiuojamas su pridėtinėmis (aušinimas, siurbliai). Investiciją ir atsiperkamumą nustatote Nustatymuose → Ekonomika. Kiekvienos kasyklos uždarbis apskaičiuojamas proporcingai pagal hashrate
 (F2Pool visas kasyklas mato kaip vieną „worker“).
 
 ## Licencija

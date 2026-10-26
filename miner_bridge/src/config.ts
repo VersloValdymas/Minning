@@ -139,6 +139,10 @@ export const config = {
     currency: str('EARNINGS_CURRENCY', 'eur'),
     /** Manual BTC price override (0 = auto from CoinGecko). */
     btcPriceManual: num('BTC_PRICE_MANUAL', 0),
+    /** HA entity for electricity price (EUR/kWh, EUR/MWh or ct/kWh). Empty = use fixed price. */
+    haPriceEntity: str('HA_PRICE_ENTITY', ''),
+    /** HA entity for whole-facility power (W / kW / MW). Empty = miners only. */
+    haTotalPowerEntity: str('HA_TOTAL_POWER_ENTITY', ''),
     refreshMs: int('EARNINGS_REFRESH_S', 600) * 1000,
   },
   license: {

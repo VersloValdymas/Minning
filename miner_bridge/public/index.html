@@ -248,12 +248,16 @@
       </form>
 
       <div class="card layout-card earnings-card">
-        <div class="card-title">Uždarbis (F2Pool) ir pelnas</div>
+        <div class="card-title">Ekonomika: uždarbis, sąnaudos, atsiperkamumas</div>
         <div id="earnings-info"></div>
         <div class="two-cols" style="margin-top:10px">
-          <label>Elektros kaina, EUR/kWh<input type="number" id="elec-input" min="0" max="10" step="0.001" /></label>
-          <div style="display:flex;align-items:flex-end"><button type="button" class="btn primary" id="elec-save">Išsaugoti</button></div>
+          <label>Elektros kaina, EUR/kWh <span class="muted small" id="elec-src"></span><input type="number" id="elec-input" min="0" max="10" step="0.001" /></label>
+          <label>Investicija (visas parkas), EUR<input type="number" id="invest-input" min="0" step="100" /></label>
+          <label>Jau susigrąžinta anksčiau, EUR<input type="number" id="recovered-input" min="0" step="100" /></label>
+          <div style="display:flex;align-items:flex-end"><button type="button" class="btn primary" id="econ-save">Išsaugoti</button></div>
         </div>
+        <div class="card-title" style="margin-top:12px">Dienos pelnas, EUR</div>
+        <div class="chart" id="econ-chart" style="min-height:160px"></div>
         <p class="muted small" id="earnings-help"></p>
       </div>
 

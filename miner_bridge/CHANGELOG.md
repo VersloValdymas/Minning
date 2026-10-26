@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- **Ekonomika ir atsiperkamumas (ROI).** Elektros kaina ir viso objekto galia imama is Home Assistant (dinamiskai); pelnas = pajamos - visa objekto elektra (kasyklos + pridetines: ausinimas, siurbliai). Pridetines rodomos atskira eilute.
+- Kaupiamas dienos pelnas (daily_earnings); investicija (bendra) ir pradine susigrazinta suma -> susigrazinta %, liko atsipirkti, kada atsipirks.
+- Dienos pelno grafikas; istoriniai laikotarpiai iki 30 d.
+- Rezultatai skelbiami atgal i HA (MQTT): parko pajamos/sanaudos/pelnas/atsiperkamumas kaip jutikliai.
+- Nauji nustatymai: ha_price_entity, ha_total_power_entity; homeassistant_api.
+
 ## 0.5.0
 
 - **Uždarbis ir pelnas:** tikslus viso parko BTC uždarbis iš F2Pool API (šiandien, vakar, nepanaudotas balansas, iš viso); BTC/EUR kaina iš CoinGecko. Kiekvienai kasyklai padalijama proporcingai pagal hashrate. Pelnas = pajamos − elektra (kaina nustatoma dashboard'e / add-on nustatymuose).

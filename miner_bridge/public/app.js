@@ -158,11 +158,18 @@ function tcls(v, warn, crit, higherIsBad = true) {
   return crit !== undefined && v < crit ? 'crit' : v < warn ? 'warn' : '';
 }
 
+const stateOf = (d) => detailsOf(d)?.state ?? '';
+const STARTING_STATES = ['initializing', 'starting', 'restarting'];
+/** Producing hashrate right now - includes Vnish "auto-tuning" (it mines while tuning). */
+const isHashing = (d) => d.active && !isOfflineish(d) && !!d.latest && (metricsOf(d).hashrate_ths ?? 0) > 0;
+
 const FILTERS = [
   { key: 'all', label: 'Visos', test: () => true },
   { key: 'crit', label: 'Kritinės', test: (d) => d.health.level === 'crit' || d.health.level === 'offline' },
   { key: 'warn', label: 'Įspėjimai', test: (d) => d.health.level === 'warn' },
-  { key: 'info', label: 'Kraunasi / tuning', test: (d) => d.health.level === 'info' },
+  { key: 'notmining', label: 'Nekasa', test: (d) => d.active && !isHashing(d) },
+  { key: 'tuning', label: 'Autotuning', test: (d) => d.active && stateOf(d) === 'auto-tuning' },
+  { key: 'starting', label: 'Kraunasi', test: (d) => d.active && !isOfflineish(d) && STARTING_STATES.includes(stateOf(d)) },
   { key: 'ok', label: 'Tvarkingos', test: (d) => d.health.level === 'ok' },
   { key: 'disabled', label: 'Išjungtos', test: (d) => d.health.level === 'disabled' },
 ];
@@ -350,10 +357,13 @@ function renderKpis() {
   const unmeasured = live.filter((d) => metricsOf(d).power_w == null).length;
   const estimated = live.filter((d) => detailsOf(d)?.power_source === 'estimated').length;
   const eff = hr > 0 && power > 0 ? power / hr : null;
-  const mining = live.filter((d) => detailsOf(d)?.state === 'mining' || (!detailsOf(d)?.state && metricsOf(d).hashrate_ths > 0)).length;
-  const stateOf = (d) => detailsOf(d)?.state ?? '';
+  const hashing = active.filter(isHashing).length;
+  const tuning = live.filter((d) => stateOf(d) === 'auto-tuning').length;
   const stopped = live.filter((d) => ['stopped', 'paused', 'shutting-down'].includes(stateOf(d))).length;
-  const starting = live.filter((d) => ['initializing', 'starting', 'restarting', 'auto-tuning'].includes(stateOf(d))).length;
+  const starting = live.filter((d) => STARTING_STATES.includes(stateOf(d))).length;
+  const failed = live.filter((d) => stateOf(d) === 'failure').length;
+  const offline = active.length - live.length;
+  const notMining = active.length - hashing;
   const measuredCount = live.filter((d) => metricsOf(d).power_w != null).length;
   const crit = active.filter((d) => d.health.level === 'crit' || d.health.level === 'offline').length;
   const warn = active.filter((d) => d.health.level === 'warn').length;
@@ -368,7 +378,15 @@ function renderKpis() {
     kpi('Parko hashrate', hrp.v, hrp.u, nomPct !== null ? `${nf(nomPct, 1)} % nominalo` : 'nominalas nežinomas'),
     kpi('Galia', measuredCount ? nf(power / 1000, 2) : '–', 'kW', unmeasured ? `+ ${unmeasured} kasykl. nematuojama (sustabdytos)` : estimated ? `įskaitant ${estimated} budėjimo įvert. · ≈ ${nf((power * 24) / 1000, 0)} kWh/d` : `≈ ${nf((power * 24) / 1000, 0)} kWh per parą`),
     kpi('Efektyvumas', nf(eff, 1), 'J/TH', 'parko vidurkis (W ÷ TH/s)'),
-    kpi('Kasyklos', `${mining}`, `/ ${active.length}`, [`kasa`, starting && `${starting} kraunasi`, stopped && `${stopped} sustabdyta`, `${active.length - live.length} neprisijungę`].filter(Boolean).join(' · ')),
+    kpi(
+      'Kasyklos',
+      `${hashing}`,
+      `/ ${active.length} kasa`,
+      notMining === 0
+        ? `✓ visos kasa${tuning ? ` · ${tuning} autotuning` : ''}`
+        : [`<b>${notMining} nekasa</b>`, offline && `${offline} offline`, failed && `${failed} gedimas`, stopped && `${stopped} sustabdyta`, starting && `${starting} kraunasi`, tuning && `${tuning} autotuning`].filter(Boolean).join(' · '),
+      notMining ? 'kpi-link' : '',
+    ),
     kpi(
       'Reikia dėmesio',
       `<span style="color:${crit ? 'var(--crit)' : 'inherit'}">${crit}</span>`,
@@ -398,7 +416,8 @@ function renderKpis() {
 function renderChips() {
   $('#status-chips').innerHTML = FILTERS.map((f) => {
     const n = state.devices.filter(f.test).length;
-    if (f.key !== 'all' && f.key !== state.statusFilter && n === 0) return '';
+    // 'Nekasa' stays visible at 0 - it is the at-a-glance "all miners hashing" check
+    if (f.key !== 'all' && f.key !== 'notmining' && f.key !== state.statusFilter && n === 0) return '';
     return `<button class="chip" data-filter="${f.key}" aria-pressed="${state.statusFilter === f.key}">${f.label} <span class="n">${n}</span></button>`;
   }).join('');
 }
@@ -1358,6 +1377,13 @@ function wire() {
     store.set('theme', next);
     renderAll();
     for (const [el, o] of charts) drawChart(el, o);
+  });
+  $('#kpis').addEventListener('click', (e) => {
+    if (!e.target.closest('.kpi-link')) return;
+    state.statusFilter = 'notmining';
+    if (state.tab !== 'overview' && state.tab !== 'table' && state.tab !== 'heatmap') setTab('overview');
+    renderAll();
+    $('#status-chips').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
   $('#search').addEventListener('input', (e) => { state.q = e.target.value; renderAll(); });
   $('#status-chips').addEventListener('click', (e) => {

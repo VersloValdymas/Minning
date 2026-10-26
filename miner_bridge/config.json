@@ -1,6 +1,6 @@
 {
   "name": "Miner Bridge",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "slug": "miner_bridge",
   "description": "ASIC miner monitoring & control: discovery, health, coolant flow, TimescaleDB history, MQTT for Home Assistant",
   "url": "https://github.com/VersloValdymas/Minning",
@@ -16,6 +16,7 @@
   "ingress_port": 3000,
   "panel_icon": "mdi:pickaxe",
   "panel_title": "Miners",
+  "panel_admin": true,
   "services": [
     "mqtt:want"
   ],

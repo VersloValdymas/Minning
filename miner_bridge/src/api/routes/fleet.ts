@@ -13,7 +13,9 @@ export function fleetRouter(ctx: AppContext): Router {
   /** GET /api/fleet/history?hours=24 -> [{bucket, hashrate_ths, power_w, online}] */
   r.get('/history', async (req, res) => {
     const hours = clampHours(req.query.hours, 24);
-    res.json(await metricsRepo.fleetHistory(ctx.pool, hours, autoBucket(hours, minBucket)));
+    // Fresh install: size buckets to the data that exists, so the chart is not empty for the first hour
+    const spanH = Math.min(hours, Math.max(await metricsRepo.dataSpanHours(ctx.pool, hours), 0.25));
+    res.json(await metricsRepo.fleetHistory(ctx.pool, hours, autoBucket(spanH, minBucket)));
   });
 
   /** GET /api/fleet/sparklines?hours=6 -> { deviceId: [[iso, ths], ...] } */

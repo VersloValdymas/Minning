@@ -52,6 +52,15 @@ export const metricsRepo = {
     return rows;
   },
 
+  /** Hours of data available within the window (0 when empty). */
+  async dataSpanHours(pool: Pool, hours: number): Promise<number> {
+    const { rows } = await pool.query<{ h: number | null }>(
+      `SELECT EXTRACT(EPOCH FROM (now() - min(time))) / 3600 AS h FROM miner_metrics WHERE time > now() - make_interval(hours => $1::int)`,
+      [hours],
+    );
+    return Number(rows[0]?.h ?? 0);
+  },
+
   /** Fleet totals per bucket: per-device average first, then summed (robust to missing samples). */
   async fleetHistory(pool: Pool, hours: number, bucketSeconds: number) {
     const { rows } = await pool.query(

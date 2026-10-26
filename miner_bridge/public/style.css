@@ -417,3 +417,7 @@ body.stale main, body.stale .kpis, body.stale .filterbar { opacity: .55; transit
 
 .layout-top { display: flex; flex-wrap: wrap; gap: 16px; }
 .layout-site select { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; }
+
+.kpi.kpi-link { cursor: pointer; border-color: var(--warn); }
+.kpi.kpi-link:hover { background: var(--surface-2); }
+.kpi.kpi-link .kpi-sub::after { content: " → rodyti"; color: var(--accent); }

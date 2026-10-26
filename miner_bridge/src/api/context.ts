@@ -1,3 +1,5 @@
+import type { AuthService } from '../auth/auth-service.js';
+import type { LicenseService } from '../license/license-service.js';
 import type { AppConfig } from '../config.js';
 import type { Pool } from '../db/pool.js';
 import type { MqttBridge } from '../mqtt/bridge.js';
@@ -14,4 +16,6 @@ export interface AppContext {
   scanner: Scanner;
   poller: Poller;
   settings: SettingsService;
+  auth: AuthService;
+  license: LicenseService;
 }

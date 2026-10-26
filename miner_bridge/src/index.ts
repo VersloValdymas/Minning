@@ -10,6 +10,9 @@ import { Poller } from './poller/poller.js';
 import { Scanner } from './scanner/scanner.js';
 import { DeviceService } from './services/device-service.js';
 import { SettingsService } from './settings/settings-service.js';
+import { AuthService } from './auth/auth-service.js';
+import { LicenseService } from './license/license-service.js';
+import { clearResetOption } from './auth/supervisor-options.js';
 import { errorMessage } from './util/async.js';
 
 setLogLevel(config.logLevel);
@@ -25,6 +28,16 @@ async function main() {
   await applyRetentionPolicy(pool, config.db.retentionDays);
 
   // 2. Services (dashboard settings override env / add-on defaults)
+  const license = new LicenseService(pool, config.license);
+  await license.init();
+  log.info(`License: ${license.current.state} - ${license.current.message} (install ${license.current.installId})`);
+  setInterval(() => license.refresh().catch(() => undefined), 3600_000);
+
+  const auth = new AuthService(pool, config.auth);
+  if (config.auth.resetRequested) {
+    await auth.reset();
+    await clearResetOption(); // flip the add-on option back so the next restart does not reset again
+  }
   const settings = new SettingsService(pool, config);
   await settings.load();
   const mqtt = new MqttBridge(config.mqtt, config.appVersion);
@@ -49,7 +62,7 @@ async function main() {
   mqtt.connect();
 
   // 4. HTTP + polling
-  const app = createServer({ config, pool, mqtt, devices, scanner, poller, settings }, config);
+  const app = createServer({ config, pool, mqtt, devices, scanner, poller, settings, auth, license }, config);
   const server: Server = app.listen(config.http.port, () => log.info(`Dashboard: http://localhost:${config.http.port}`));
   poller.start();
 

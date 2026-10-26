@@ -65,6 +65,9 @@ const shortModel = (m) => (m ?? '').replace(/^Antminer\s+/i, '').replace(/\s*\(.
 const poolHost = (p) => (p ?? '').replace(/^stratum\+?\w*:\/\//, '').split(':')[0];
 
 // ---------------------------------------------------------------- api
+/** Session missing / expired: the login screen is shown instead of error toasts. */
+class AuthError extends Error {}
+
 /** Server unreachable (stopped, restarting, add-on updating). Shown once as a banner, never as toasts. */
 class OfflineError extends Error {}
 
@@ -112,13 +115,21 @@ async function api(path, options = {}) {
   setOnline(true);
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
+  if (res.status === 402 && data.code === 'license_locked') {
+    showLicenseLock(data);
+    throw new AuthError(data.error);
+  }
+  if (res.status === 401 && data.code === 'auth_required' && !path.startsWith('auth/')) {
+    showAuth('login', 'Sesija baigėsi – prisijunkite iš naujo.');
+    throw new AuthError(data.error);
+  }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
 /** For background refreshes: connection loss is already shown by the banner, only report real API errors. */
 function reportBackgroundError(prefix, e) {
-  if (!(e instanceof OfflineError)) toast(`${prefix}: ${e.message}`, true);
+  if (!(e instanceof OfflineError) && !(e instanceof AuthError)) toast(`${prefix}: ${e.message}`, true);
 }
 
 let toastTimer;
@@ -1467,7 +1478,7 @@ function setTab(tab) {
   $$('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   $$('.tab-panel').forEach((p) => (p.hidden = p.dataset.panel !== tab));
   if (tab === 'events') renderEvents();
-  if (tab === 'settings') { loadSettings(); renderLayoutEditor(); renderAccessCard(); }
+  if (tab === 'settings') { loadSettings(); renderLayoutEditor(); renderAccessCard(); renderSecurityCard(); renderLicenseCard(); }
   renderAll();
 }
 
@@ -1710,6 +1721,30 @@ function wire() {
     renderLayoutEditor();
   });
   $('#layout-save').addEventListener('click', saveLayout);
+  $('#license-activate-btn').addEventListener('click', async () => {
+    const key = $('#license-key-input').value.trim();
+    if (await activateLicense(key, null, (d) => toast(`Licencija aktyvuota: ${d.customer ?? ''}`))) {
+      $('#license-key-input').value = '';
+      state.license = await fetch('api/license/status').then((r) => r.json());
+      renderLicenseCard();
+    } else {
+      toast('Nepavyko aktyvuoti licencijos', true);
+    }
+  });
+  $('#pw-change-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const next = $('#pw-new').value;
+    if (passwordRules(next).some((r) => !r.ok)) return toast('Naujas slaptažodis per silpnas: min. 12 simbolių, bent 3 simbolių grupės', true);
+    if (await authAction('change-password', { current: $('#pw-current').value, next }, 'Slaptažodis pakeistas – kiti įrenginiai atjungti')) {
+      $('#pw-current').value = '';
+      $('#pw-new').value = '';
+    }
+  });
+  $('#logout-btn').addEventListener('click', async () => { if (await authAction('logout', {}, 'Atsijungta')) location.reload(); });
+  $('#logout-all-btn').addEventListener('click', async () => {
+    if (!confirm('Atjungti visas sesijas (visuose kompiuteriuose ir telefonuose)?')) return;
+    if (await authAction('logout', { everywhere: true }, 'Atsijungta visur')) location.reload();
+  });
   $('#access-recheck').addEventListener('click', (e) => recheckAccess(e.currentTarget));
   $('#coolant-form').addEventListener('input', schedulePreview);
   $('#coolant-form').addEventListener('submit', saveCoolant);
@@ -1729,7 +1764,207 @@ function wire() {
   $('#scan-cancel').addEventListener('click', () => api('scan', { method: 'DELETE' }).catch((e) => toast(e.message, true)));
 }
 
+// ---------------------------------------------------------------- license
+const LICENSE_STATE_TITLE = {
+  expired: 'Licencija pasibaigusi',
+  invalid: 'Licencija netinkama',
+  missing: 'Reikia licencijos',
+  unconfigured: 'Licencijavimas nesukonfigūruotas',
+};
+
+function showLicenseLock(st) {
+  state.license = st;
+  $('#lic-screen').hidden = false;
+  $('#auth-screen').hidden = true;
+  $('#lic-title').textContent = LICENSE_STATE_TITLE[st.state] ?? 'Licencija';
+  $('#lic-msg').textContent = st.message || '';
+  $('#lic-install').textContent = st.installId ?? '–';
+  $('#lic-help').style.display = st.state === 'unconfigured' ? 'none' : '';
+  $('#lic-key').parentElement.style.display = st.state === 'unconfigured' ? 'none' : '';
+  $('#lic-activate').style.display = st.state === 'unconfigured' ? 'none' : '';
+}
+
+async function activateLicense(key, errEl, onOk) {
+  const el = errEl;
+  try {
+    const res = await fetch('api/license/activate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { if (el) { el.hidden = false; el.textContent = data.error || 'Klaida'; } return false; }
+    onOk?.(data);
+    return true;
+  } catch {
+    if (el) { el.hidden = false; el.textContent = 'Nėra ryšio su serveriu.'; }
+    return false;
+  }
+}
+
+/** Returns true if licensed (dashboard may continue to auth/load). */
+async function ensureLicense() {
+  try {
+    const st = await fetch('api/license/status').then((r) => r.json());
+    state.license = st;
+    if (st.active) return true;
+    showLicenseLock(st);
+    return false;
+  } catch {
+    return true; // server down -> offline banner handles it
+  }
+}
+
+function renderLicenseCard() {
+  const l = state.license;
+  if (!l) return;
+  const badgeLevel = l.state === 'ok' ? 'ok' : l.state === 'grace' ? 'warn' : 'crit';
+  const exp = l.expiresAt ? new Date(l.expiresAt).toLocaleDateString('lt-LT') : (l.state === 'ok' ? 'neterminuota' : '–');
+  $('#license-info').innerHTML = `<div class="preview-summary">
+      <span class="badge">${statusIcon(badgeLevel)}${esc(l.message)}</span>
+    </div>
+    <table class="mini-table"><tbody>
+      <tr><th>Klientas</th><td>${esc(l.customer ?? '–')}</td></tr>
+      <tr><th>Galioja iki</th><td>${esc(exp)}</td></tr>
+      ${l.maxMiners ? `<tr><th>Kasyklų limitas</th><td>${l.maxMiners}</td></tr>` : ''}
+      <tr><th>Įrenginio ID</th><td><code>${esc(l.installId)}</code></td></tr>
+    </tbody></table>`;
+}
+
+// ---------------------------------------------------------------- auth (super-admin)
+let authMode = 'login';
+let lockTimer = null;
+
+function passwordRules(pw) {
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
+  return [
+    { ok: pw.length >= 12, text: 'Bent 12 simbolių' },
+    { ok: classes >= 3 || pw.length >= 20, text: 'Bent 3 iš 4: mažosios, didžiosios, skaičiai, simboliai (arba 20+ simbolių frazė)' },
+  ];
+}
+
+function generatePassword(len = 20) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*?+-=';
+  const out = [];
+  const buf = new Uint32Array(len);
+  crypto.getRandomValues(buf);
+  for (const n of buf) out.push(chars[n % chars.length]);
+  return out.join('');
+}
+
+function showAuth(mode, message = '') {
+  authMode = mode;
+  const setup = mode === 'setup';
+  $('#auth-screen').hidden = false;
+  $('#auth-title').textContent = setup ? 'Sukurkite administratoriaus slaptažodį' : 'Prisijungimas';
+  $('#auth-intro').textContent = setup
+    ? 'Pirmas paleidimas: šis slaptažodis saugos dashboard\'ą ir kasyklų valdymą. Saugomas tik jo šifruotas atspaudas (scrypt).'
+    : message || 'Įveskite administratoriaus slaptažodį.';
+  $('#auth-confirm-wrap').hidden = !setup;
+  $('#auth-setup-tools').hidden = !setup;
+  $('#auth-password').autocomplete = setup ? 'new-password' : 'current-password';
+  $('#auth-submit').textContent = setup ? 'Sukurti ir prisijungti' : 'Prisijungti';
+  $('#auth-foot').textContent = setup ? '' : 'Sesija galioja 30 dienų nuo paskutinio apsilankymo.';
+  $('#auth-error').hidden = true;
+  if (setup) renderRules();
+  setTimeout(() => $('#auth-password').focus(), 50);
+}
+
+function renderRules() {
+  $('#auth-rules').innerHTML = passwordRules($('#auth-password').value)
+    .map((r) => `<li class="${r.ok ? 'ok' : ''}">${r.ok ? '✓' : '○'} ${r.text}</li>`)
+    .join('');
+}
+
+function authError(msg, lockSeconds) {
+  const el = $('#auth-error');
+  el.hidden = false;
+  clearInterval(lockTimer);
+  if (!lockSeconds) { el.textContent = msg; $('#auth-submit').disabled = false; return; }
+  let left = lockSeconds;
+  $('#auth-submit').disabled = true;
+  const tick = () => {
+    el.textContent = `${msg} Liko: ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    if (left-- <= 0) { clearInterval(lockTimer); $('#auth-submit').disabled = false; el.hidden = true; }
+  };
+  tick();
+  lockTimer = setInterval(tick, 1000);
+}
+
+async function submitAuth(ev) {
+  ev.preventDefault();
+  const pw = $('#auth-password').value;
+  if (authMode === 'setup') {
+    if (passwordRules(pw).some((r) => !r.ok)) return authError('Slaptažodis per silpnas.');
+    if (pw !== $('#auth-confirm').value) return authError('Slaptažodžiai nesutampa.');
+  }
+  $('#auth-submit').disabled = true;
+  try {
+    const res = await fetch(`api/auth/${authMode === 'setup' ? 'setup' : 'login'}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return authError(data.error || `Klaida (HTTP ${res.status})`, res.status === 423 ? data.remainingSeconds : res.status === 429 ? 15 * 60 : 0);
+    location.reload(); // clean start with the new session (SSE, data)
+  } catch {
+    authError('Nėra ryšio su serveriu.');
+  }
+}
+
+/** Returns true when the dashboard may load (authenticated or auth disabled). */
+async function ensureAuth() {
+  try {
+    const st = await fetch('api/auth/status').then((r) => r.json());
+    state.auth = st;
+    if (!st.enabled || st.authenticated) return true;
+    showAuth(st.setupRequired ? 'setup' : 'login');
+    return false;
+  } catch {
+    return true; // server down -> the offline banner handles it
+  }
+}
+
+function renderSecurityCard() {
+  const a = state.auth;
+  $('#security-info').innerHTML = !a?.enabled
+    ? 'Prisijungimas išjungtas (AUTH_ENABLED=false) – naudokite tik lokaliam testavimui.'
+    : `Sesija galioja <b>${a.idleDays ?? 30} d.</b> nuo paskutinio apsilankymo ir kaskart pratęsiama${a.expiresAt ? ` (dabar baigtųsi ${new Date(a.expiresAt).toLocaleDateString('lt-LT')})` : ''}.
+       Pamiršus slaptažodį: HA → Miner Bridge → Configuration → <code>admin_password_reset</code> = įjungta → Restart.`;
+}
+
+async function authAction(path, body, okMsg) {
+  try {
+    const res = await fetch(`api/auth/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(okMsg);
+    return true;
+  } catch (e) {
+    toast(e.message, true);
+    return false;
+  }
+}
+
 (async function init() {
+  $('#auth-form').addEventListener('submit', submitAuth);
+  $('#auth-password').addEventListener('input', () => authMode === 'setup' && renderRules());
+  $('#auth-show').addEventListener('click', () => {
+    for (const el of [$('#auth-password'), $('#auth-confirm')]) el.type = el.type === 'password' ? 'text' : 'password';
+  });
+  $('#auth-generate').addEventListener('click', () => {
+    const pw = generatePassword();
+    $('#auth-password').value = pw;
+    $('#auth-confirm').value = pw;
+    $('#auth-password').type = 'text';
+    $('#auth-confirm').type = 'text';
+    renderRules();
+    navigator.clipboard?.writeText(pw).then(() => toast('Slaptažodis nukopijuotas – išsaugokite jį!')).catch(() => {});
+  });
+  $('#lic-copy').addEventListener('click', () => navigator.clipboard?.writeText($('#lic-install').textContent).then(() => toast('Nukopijuota')).catch(() => {}));
+  $('#lic-activate').addEventListener('click', () =>
+    activateLicense($('#lic-key').value.trim(), $('#lic-error'), () => location.reload()),
+  );
+  if (!(await ensureLicense())) return;
+  if (!(await ensureAuth())) return;
+
   applyTheme(store.get('theme', null));
   state.sort = store.get('sort', 'health');
   state.range = store.get('range', 24);

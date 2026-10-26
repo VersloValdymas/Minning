@@ -3,6 +3,9 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { ROOT_DIR, type AppConfig } from '../config.js';
 import { createLogger } from '../logger.js';
 import { HttpError } from '../util/http-error.js';
+import { authGate, securityHeaders } from '../auth/http.js';
+import { authRouter } from './routes/auth.js';
+import { licenseGate, licenseRouter } from './routes/license.js';
 import { devicesRouter } from './routes/devices.js';
 import { fleetRouter } from './routes/fleet.js';
 import { scanRouter } from './routes/scan.js';
@@ -20,6 +23,9 @@ const INGRESS_ALLOWED = new Set(['172.30.32.2', '127.0.0.1', '::1']);
 export function createServer(ctx: AppContext, cfg: AppConfig) {
   const app = express();
   app.disable('x-powered-by');
+  // Only the HA Ingress proxy (and localhost) may set X-Forwarded-For -> real client IP for rate limiting / audit
+  app.set('trust proxy', ['loopback', '172.30.32.2']);
+  app.use(securityHeaders);
 
   if (cfg.http.ingressOnly) {
     app.use((req, res, next) => {
@@ -31,6 +37,14 @@ export function createServer(ctx: AppContext, cfg: AppConfig) {
   }
 
   app.use(express.json({ limit: '100kb' }));
+
+  // License gate first: when locked, only /api/health, /api/license/* and /api/auth/* pass
+  app.use('/api/license', licenseRouter(ctx.license));
+  app.use('/api', licenseGate(ctx.license));
+
+  // Dashboard super-admin login: everything under /api except /api/auth/* and /api/health needs a session
+  app.use('/api/auth', authRouter(ctx.auth, cfg.auth.enabled));
+  app.use('/api', authGate(ctx.auth, cfg.auth.enabled));
 
   app.use('/api', systemRouter(ctx));
   app.use('/api/devices', devicesRouter(ctx));
@@ -46,7 +60,8 @@ export function createServer(ctx: AppContext, cfg: AppConfig) {
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError) {
-      res.status(err.status).json({ error: err.message });
+      const extra = err as HttpError & { remainingSeconds?: number; remainingAttempts?: number };
+      res.status(err.status).json({ error: err.message, remainingSeconds: extra.remainingSeconds, remainingAttempts: extra.remainingAttempts });
       return;
     }
     const status = (err as { status?: number }).status;

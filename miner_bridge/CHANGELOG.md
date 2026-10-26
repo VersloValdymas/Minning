@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0
+
+- **Licencijavimas.** Pasirašytas (Ed25519) licencijos raktas: be galiojančios licencijos dashboard'as užrakintas (rodomas tik licencijos langas su įrenginio ID). Lengvatos periodas po pabaigos – 7 d. (`license_grace_days`).
+- Raktai generuojami vietoje (`npm run license:genkeys`), licencijos išrašomos `npm run license:issue`. Privatus raktas niekada nepatenka į repo. Ateityje tą patį darys licencijų serveris.
+- Apsauga: licencija gali būti pririšta prie įrenginio ID (nenukopijuojama), tikrinamas laikrodžio pasukimas atgal.
+- Licenciją galima įvesti add-on nustatyme `license_key` arba dashboard užrakto lange / Nustatymuose.
+
+## 0.3.0
+
+- **Administratoriaus slaptažodis dashboard'ui.** Pirmą kartą atidarius – slaptažodžio sukūrimas (arba sugeneravimas). Saugomas tik scrypt hash.
+- Sesija galioja 30 d. nuo paskutinio apsilankymo (`session_idle_days`), kaskart pratęsiama. Slapukas HttpOnly, SameSite=Strict.
+- Apsauga nuo perrinkimo: 10 bandymų / 15 min iš IP; užrakinimas 5 klaidos → 15 min, 10 → 1 h, 15 → 24 h. Audit žurnalas.
+- Nustatymai → „Saugumas“: slaptažodžio keitimas (kitos sesijos atjungiamos), atsijungimas, atsijungimas visur.
+- Pamiršus slaptažodį: add-on nustatymas `admin_password_reset` (po paleidimo automatiškai išjungiamas).
+- Saugumo antraštės (CSP, nosniff).
+
 ## 0.2.3
 
 - **Autotuning:** profilis (pvz. 5940 W ≈ 396 TH/s) ir ar jis suderintas, sesijos trukmė, derinimo ratai, progresas pagal grandines, nutraukimų skaičius (iš Vnish tuner žurnalo).

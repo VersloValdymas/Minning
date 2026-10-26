@@ -1,6 +1,6 @@
 {
   "name": "miner-bridge",
-  "version": "0.2.3",
+  "version": "0.4.0",
   "description": "ASIC miner discovery, telemetry (TimescaleDB) and MQTT bridge for Home Assistant",
   "private": true,
   "type": "module",
@@ -15,10 +15,13 @@
     "migrate": "tsx src/db/migrate.ts",
     "mock": "tsx tools/mock-miners.ts",
     "deps:up": "docker compose -f ../docker-compose.yml up -d --wait",
-    "deps:down": "docker compose -f ../docker-compose.yml down"
+    "deps:down": "docker compose -f ../docker-compose.yml down",
+    "license:genkeys": "tsx tools/license-keygen.ts",
+    "license:issue": "tsx tools/issue-license.ts"
   },
   "dependencies": {
     "express": "^5.2.1",
+    "express-rate-limit": "^7.5.1",
     "mqtt": "^5.16.0",
     "pg": "^8.23.1"
   },

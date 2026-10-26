@@ -8,6 +8,49 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- License lock (shown before everything when not licensed) -->
+  <div class="auth-screen" id="lic-screen" hidden>
+    <div class="auth-card lic-card">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">🔑</span> Miner Bridge</div>
+      <h2 id="lic-title">Licencija</h2>
+      <p class="lic-msg" id="lic-msg"></p>
+      <div class="lic-id">Įrenginio ID: <code id="lic-install"></code> <button type="button" class="icon-btn" id="lic-copy" title="Kopijuoti" aria-label="Kopijuoti">⧉</button></div>
+      <p class="muted small" id="lic-help">Licencijai įsigyti ar pratęsti susisiekite su tiekėju ir nurodykite įrenginio ID. Gautą licencijos raktą įklijuokite žemiau.</p>
+      <label class="auth-field">Licencijos raktas
+        <textarea id="lic-key" rows="4" spellcheck="false" placeholder="Įklijuokite licencijos raktą…"></textarea>
+      </label>
+      <p class="auth-error" id="lic-error" role="alert" hidden></p>
+      <button type="button" class="btn primary auth-submit" id="lic-activate">Aktyvuoti</button>
+    </div>
+  </div>
+
+  <!-- Super-admin login (shown before anything else loads) -->
+  <div class="auth-screen" id="auth-screen" hidden>
+    <form class="auth-card" id="auth-form" autocomplete="on">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">🔒</span> Miner Bridge</div>
+      <h2 id="auth-title">Prisijungimas</h2>
+      <p class="muted small" id="auth-intro"></p>
+      <input type="text" name="username" value="admin" autocomplete="username" hidden />
+      <label class="auth-field">Slaptažodis
+        <div class="pw-row">
+          <input type="password" id="auth-password" autocomplete="current-password" required />
+          <button type="button" class="icon-btn" id="auth-show" title="Rodyti / slėpti" aria-label="Rodyti slaptažodį">👁</button>
+        </div>
+      </label>
+      <label class="auth-field" id="auth-confirm-wrap" hidden>Pakartokite slaptažodį
+        <input type="password" id="auth-confirm" autocomplete="new-password" />
+      </label>
+      <div id="auth-setup-tools" hidden>
+        <button type="button" class="btn small-btn" id="auth-generate">Sugeneruoti stiprų slaptažodį</button>
+        <ul class="pw-rules small" id="auth-rules"></ul>
+        <p class="small warn-note">Išsaugokite slaptažodį saugioje vietoje (slaptažodžių tvarkyklėje). Jo atkurti negalima – pamiršus tenka atstatyti per add-on nustatymą <code>admin_password_reset</code>.</p>
+      </div>
+      <p class="auth-error" id="auth-error" role="alert" hidden></p>
+      <button type="submit" class="btn primary auth-submit" id="auth-submit">Prisijungti</button>
+      <p class="muted small" id="auth-foot"></p>
+    </form>
+  </div>
+
   <header class="appbar">
     <div class="brand"><span class="brand-mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h2M7 14h2M13 10h4M13 14h4"/></svg></span> Miner Bridge</div>
     <nav class="tabs" role="tablist">
@@ -201,6 +244,32 @@
           <p class="muted small" id="coolant-source"></p>
         </div>
       </form>
+
+      <div class="card layout-card license-card">
+        <div class="card-title">Licencija</div>
+        <div id="license-info"></div>
+        <details class="preview-all"><summary>Įvesti kitą licencijos raktą</summary>
+          <label class="auth-field" style="margin-top:8px">Licencijos raktas
+            <textarea id="license-key-input" rows="3" spellcheck="false" placeholder="Įklijuokite licencijos raktą…"></textarea>
+          </label>
+          <div class="settings-actions"><button type="button" class="btn primary" id="license-activate-btn">Aktyvuoti</button></div>
+        </details>
+      </div>
+
+      <div class="card layout-card security-card">
+        <div class="card-title">Saugumas – administratoriaus slaptažodis</div>
+        <p class="muted small" id="security-info"></p>
+        <form id="pw-change-form" class="two-cols" autocomplete="off">
+          <input type="text" name="username" value="admin" autocomplete="username" hidden />
+          <label>Dabartinis slaptažodis<input type="password" id="pw-current" autocomplete="current-password" required /></label>
+          <label>Naujas slaptažodis (min. 12 simbolių)<input type="password" id="pw-new" autocomplete="new-password" required /></label>
+          <div class="settings-actions" style="grid-column: 1 / -1">
+            <button type="submit" class="btn primary">Pakeisti slaptažodį</button>
+            <button type="button" class="btn" id="logout-btn">Atsijungti</button>
+            <button type="button" class="btn danger" id="logout-all-btn">Atsijungti visuose įrenginiuose</button>
+          </div>
+        </form>
+      </div>
 
       <div class="card layout-card access-card">
         <div class="card-title">Kasyklų valdymo prieiga (Vnish API raktas)</div>

@@ -120,6 +120,22 @@ export const config = {
     /** Unfinished tuning interrupted this many times (restarts / power loss) = warning. */
     tuningInterruptionsWarn: int('TUNING_INTERRUPTIONS_WARN', 3),
   },
+  license: {
+    /** License enforcement. Disable only for local development. */
+    enabled: bool('LICENSE_ENABLED', true),
+    /** Signed license token (usually set in the dashboard; add-on option / env is a fallback). */
+    key: str('LICENSE_KEY', ''),
+    /** Days of full function after expiry before locking. */
+    graceDays: int('LICENSE_GRACE_DAYS', 7),
+  },
+  auth: {
+    /** Dashboard super-admin password login. Disable only for local development. */
+    enabled: bool('AUTH_ENABLED', true),
+    /** Session expires after this many days WITHOUT activity (sliding). */
+    sessionIdleDays: int('SESSION_IDLE_DAYS', 30),
+    /** Wipes the admin password at startup (forgotten password). Add-on option admin_password_reset. */
+    resetRequested: bool('ADMIN_PASSWORD_RESET', false),
+  },
   coolant: {
     /** water | ethylene_glycol | propylene_glycol - properties are derived from type + concentration. */
     type: str('COOLANT_TYPE', 'water'),

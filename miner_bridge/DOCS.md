@@ -25,7 +25,18 @@ HA atsarginė kopija yra „šalta“: kopijos metu add-on'as trumpam sustabdoma
 
 Išplėstiniai nustatymai (slenksčiai, apklausos dažnis ir kt.) matomi įjungus **Show unused optional configuration options**.
 
+## Licencija
+
+Reikalinga galiojanti licencija. Pirmą kartą atidarius rodomas užrakto langas su **įrenginio ID** – jį nurodykite tiekėjui licencijai gauti, tada gautą raktą įklijuokite lange (arba Configuration → `license_key`). Be licencijos dashboard'as užrakintas.
+
+**Tiekėjui (vieną kartą):** `cd miner_bridge && npm run license:genkeys` sukuria raktų porą; `npm run license:issue -- --cust "Vardas" --id ID --days 365 [--hwid ĮRENGINIO_ID]` išrašo licenciją.
+
 ## Saugumas
+
+Pirmą kartą atidarius dashboard'ą reikia susikurti **administratoriaus slaptažodį** (min. 12 simbolių; galima sugeneruoti).
+Sesija galioja 30 dienų nuo paskutinio apsilankymo. **Pamiršus slaptažodį:** Configuration → `admin_password_reset` = įjungta → Save → Restart,
+tada dashboard'e sukurkite naują (nustatymas pats išsijungia).
+
 
 Dashboard'as pasiekiamas **tik per Home Assistant Ingress** (su HA prisijungimu). Tiesioginiai kreipiniai į prievadą 3000
 iš tinklo atmetami (`ingress_only`, numatyta įjungta).

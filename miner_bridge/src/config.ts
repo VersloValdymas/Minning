@@ -115,6 +115,10 @@ export const config = {
     rejectCritPct: int('REJECT_CRIT_PCT', 3),
     /** initializing/starting longer than this = stuck. */
     stuckStartingS: int('STUCK_STARTING_S', 900),
+    /** Auto-tuning session longer than this = warning (first tuning of a preset usually takes 2-8 h). */
+    tuningWarnH: int('TUNING_WARN_H', 12),
+    /** Unfinished tuning interrupted this many times (restarts / power loss) = warning. */
+    tuningInterruptionsWarn: int('TUNING_INTERRUPTIONS_WARN', 3),
   },
   coolant: {
     /** water | ethylene_glycol | propylene_glycol - properties are derived from type + concentration. */

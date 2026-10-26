@@ -19,6 +19,12 @@ export function fleetRouter(ctx: AppContext): Router {
   });
 
   /** GET /api/fleet/sparklines?hours=6 -> { deviceId: [[iso, ths], ...] } */
+  /** POST /api/fleet/recheck -> re-read API access / tuning info for every miner in the next poll cycle */
+  r.post('/recheck', (_req, res) => {
+    ctx.poller.forceTuningRead();
+    res.json({ ok: true });
+  });
+
   r.get('/sparklines', async (req, res) => {
     const hours = clampHours(req.query.hours, 6);
     res.json(await metricsRepo.sparklines(ctx.pool, hours, Math.max(Math.ceil((hours * 3600) / 48), minBucket)));

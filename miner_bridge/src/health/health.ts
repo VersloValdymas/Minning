@@ -1,6 +1,6 @@
 import type { AppConfig } from '../config.js';
 import type { DeviceStatus } from '../db/devices-repo.js';
-import type { MinerDetails } from '../miners/types.js';
+import type { MinerDetails, TuningInfo } from '../miners/types.js';
 import type { RequiredFlow } from './coolant.js';
 
 /**
@@ -59,7 +59,14 @@ export interface HealthInput {
   requiredFlow?: RequiredFlow;
   /** Last flow estimate taken while mining (flow cannot be computed when the miner produces no heat). */
   lastFlow?: { lpm: number; at: Date | string } | null;
+  /** Auto-tuning profile / progress from the miner's tuner log. */
+  tuning?: TuningInfo | null;
 }
+
+const hm = (s: number) => {
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? `${h} h ${m} min` : `${m} min`;
+};
 
 export interface FirmwareRules {
   windowH: number;
@@ -158,6 +165,9 @@ export function evaluateHealth(
   if (ageMs > pollIntervalMs * 3) add('warn', 'stale', `Nėra naujų duomenų ${Math.round(ageMs / 1000)} s`);
 
   for (const e of snap.errors) add('crit', 'device_error', e);
+  if (input.tuning?.apiAccess === false) {
+    add('info', 'no_api_access', 'Nėra valdymo prieigos: Vnish API raktas šioje kasykloje nesukurtas (Start/Stop/Restart/LED neveiks)');
+  }
   issues.push(...firmwareIssues(input, state, fw.windowH, now));
 
   // Firmware state
@@ -168,7 +178,19 @@ export function evaluateHealth(
     if (stateAgeS > a.stuckStartingS) add('warn', 'stuck', `Užstrigo būsenoje „${label}“ ${Math.round(stateAgeS / 60)} min`);
     else add('info', 'starting', label);
   } else if (state === 'auto-tuning') {
-    add('info', 'tuning', 'Vyksta autotuning');
+    // Duration: tuner log session start > firmware state time > when we first saw the state
+    const tn = input.tuning;
+    const fromLog = tn?.sessionStartedAt ? (now - new Date(tn.sessionStartedAt).getTime()) / 1000 : null;
+    const tuningS = fromLog ?? d?.state_time_s ?? stateAgeS;
+    const chains = tn?.progress?.chains.map((c) => `${Math.round(c.pct)}%`).join(' / ');
+    const preset = tn?.presetPretty ? ` · ${tn.presetPretty.replace(' watt ~ ', ' W ≈ ')}` : '';
+    add('info', 'tuning', `Autotuning ${hm(tuningS)}${preset}${chains ? ` · grandinės ${chains}` : ''}`);
+    if (tuningS > a.tuningWarnH * 3600) {
+      add('warn', 'tuning_long', `Autotuning trunka per ilgai: ${hm(tuningS)} (riba ${a.tuningWarnH} h)`);
+    }
+    if (tn && tn.presetTuned !== true && tn.interruptions >= a.tuningInterruptionsWarn) {
+      add('warn', 'tuning_interrupted', `Derinimas nutrauktas ${tn.interruptions}× (perkrovimai / maitinimas) – profilis vis dar nesuderintas`);
+    }
   } else if (state === 'stopped' || state === 'paused' || state === 'shutting-down') {
     add('info', 'stopped', `Kasimas: ${label.toLowerCase()}`);
   }

@@ -72,6 +72,7 @@
           <ul id="attention-list" class="attention-list"></ul>
         </div>
       </div>
+      <div class="card tuning-banner" id="tuning-banner" hidden></div>
       <div class="miner-grid" id="miner-grid"></div>
       <p class="empty" id="empty-state" hidden>Kasyklų dar nėra. Eikite į <b>Aptikimas</b> ir nuskenuokite tinklą.</p>
     </section>
@@ -200,6 +201,16 @@
           <p class="muted small" id="coolant-source"></p>
         </div>
       </form>
+
+      <div class="card layout-card access-card">
+        <div class="card-title">Kasyklų valdymo prieiga (Vnish API raktas)</div>
+        <p class="muted small">Stebėjimui raktas nereikalingas, bet be jo neveikia komandos (paleisti / stabdyti kasimą, Restart, Reboot, LED „Rasti“)
+          ir nematyti autotuning profilio. Raktas kuriamas <b>kiekvienoje kasykloje atskirai</b>: atidarykite kasyklos Vnish →
+          <b>Settings → API keys → Add</b> ir įveskite <b>tą patį</b> 32 simbolių raktą, kuris nurodytas add-on'o nustatyme <code>vnish_api_key</code>.</p>
+        <div class="preview-summary" id="access-summary"></div>
+        <div id="access-list"></div>
+        <div class="settings-actions"><button type="button" class="btn" id="access-recheck">Patikrinti dabar</button></div>
+      </div>
 
       <div class="card layout-card">
         <div class="card-title">Konteinerio išdėstymas</div>

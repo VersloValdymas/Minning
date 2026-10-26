@@ -47,6 +47,8 @@ export interface MinerDetails {
   power_source?: 'measured' | 'calculated' | 'estimated' | 'unmeasured' | null;
   /** "Find miner" LED blinking is on (used to locate the unit physically). */
   locating?: boolean;
+  /** Seconds in the current firmware state (Vnish reports it for mining and auto-tuning). */
+  state_time_s?: number | null;
 }
 
 export type MinerMetrics = Record<MetricKey, number | null> & {
@@ -92,6 +94,31 @@ export interface MinerDriver {
   execute(target: MinerTarget, command: string, timeoutMs: number): Promise<void>;
   /** Optional: firmware log events (protection trips etc.). Called less often than poll(). */
   recentEvents?(target: MinerTarget, timeoutMs: number): Promise<FirmwareEvent[]>;
+  /** Optional: auto-tuning profile and progress (Vnish). Called less often than poll(). */
+  tuningInfo?(target: MinerTarget, timeoutMs: number): Promise<TuningInfo>;
+}
+
+/** Firmware auto-tuning: the miner tunes every chip for the selected power preset. */
+export interface TuningInfo {
+  /** Selected preset, e.g. "5940" / "5940 watt ~ 396 TH" (null without API access). */
+  preset: string | null;
+  presetPretty: string | null;
+  /** true = the selected preset has been tuned successfully (and is reused on restart). */
+  presetTuned: boolean | null;
+  /** Current tuning session start (last "Starting auto-tuning"). */
+  sessionStartedAt: string | null;
+  /** Times the unfinished tuning was interrupted and resumed (restarts / power loss) since the last success. */
+  interruptions: number;
+  /** When a tuning last finished successfully (any preset). */
+  lastFinishedAt: string | null;
+  /** Latest progress sample: per-chain % of the target hashrate, applied voltage. */
+  progress: { at: string; chains: Array<{ id: number; pct: number }>; voltageMv: number | null } | null;
+  /** Chips marked bad in the latest stats collection. */
+  badChips: number;
+  /** Stats-collection rounds in the current session (~5 min each). */
+  rounds: number;
+  /** true = the configured API key/password is accepted (commands work); false = rejected (401); null = none configured. */
+  apiAccess: boolean | null;
 }
 
 export function emptyMetrics(): MinerMetrics {

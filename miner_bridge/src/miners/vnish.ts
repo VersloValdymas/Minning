@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { emptyMetrics, toNum, toStr, type FirmwareEvent, type MinerDriver, type MinerTarget } from './types.js';
+import { emptyMetrics, toNum, toStr, type FirmwareEvent, type MinerDriver, type MinerTarget, type TuningInfo } from './types.js';
 
 type Obj = Record<string, unknown>;
 
@@ -83,6 +83,58 @@ const LOG_LINE = /^\[(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})\] (\w+): 
  *   [2026/10/08 11:16:12] INFO: Restarting (2 of 3) - Miner is overheated (pcb temp: 80°C)
  * An ERROR without a matching "Restarting" line means the firmware gave up (attempts exhausted).
  */
+/**
+ * Parses Vnish /logs/autotune. A tuning "campaign" lasts until "Auto-tune finished successfully";
+ * every restart/power loss in between logs "Starting auto-tuning" + "Recovering autotune state...".
+ * Rounds: "Collecting stats" (~5 min) -> per-chain "chain#N - X GH/s (Y%)" -> voltage step.
+ */
+export function parseAutotuneLog(text: string, offsetMin: number): Omit<TuningInfo, 'preset' | 'presetPretty' | 'presetTuned' | 'apiAccess'> {
+  const lines = text
+    .split('\n')
+    .map((l) => LOG_LINE.exec(l.trim()))
+    .filter((m): m is RegExpExecArray => m !== null);
+  const iso = (m: RegExpExecArray) =>
+    new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) - offsetMin * 60_000).toISOString();
+
+  let lastFinishedAt: string | null = null;
+  let sessionStartedAt: string | null = null;
+  let interruptions = 0;
+  let rounds = 0;
+  let badChips = 0;
+  let collecting = false;
+  let progress: TuningInfo['progress'] = null;
+  let pending: { at: string; chains: Array<{ id: number; pct: number }>; voltageMv: number | null } | null = null;
+
+  for (const m of lines) {
+    const msg = m[8];
+    if (msg.startsWith('Auto-tune finished successfully')) {
+      lastFinishedAt = iso(m);
+      interruptions = 0;
+    } else if (msg.startsWith('Starting auto-tuning')) {
+      sessionStartedAt = iso(m);
+      rounds = 0;
+    } else if (msg.startsWith('Recovering autotune state')) {
+      interruptions++;
+    } else if (msg.startsWith('Collecting stats')) {
+      collecting = true;
+    } else if (msg.startsWith('Stats collected')) {
+      rounds++;
+      badChips = 0;
+      pending = { at: iso(m), chains: [], voltageMv: null };
+      collecting = false;
+    } else if (pending) {
+      const chain = /^chain#(\d+) - (\d+) GH\/s \(([\d.]+)%\)/.exec(msg);
+      const volt = /^voltage = (\d+) mV/.exec(msg);
+      if (chain) pending.chains.push({ id: Number(chain[1]), pct: Number(chain[3]) });
+      else if (volt) pending.voltageMv = Number(volt[1]);
+      else if (/is bad$/.test(msg)) badChips++;
+      if (pending.chains.length) progress = pending;
+    }
+  }
+  void collecting;
+  return { sessionStartedAt, interruptions, lastFinishedAt, progress, badChips, rounds };
+}
+
 export function parseStatusLog(text: string, offsetMin: number): FirmwareEvent[] {
   const lines = text
     .split('\n')
@@ -213,6 +265,7 @@ export const vnishDriver: MinerDriver = {
     m.details = {
       power_source: psu.psu_power_metering === true ? 'measured' : 'calculated',
       locating: statusPane?.find_miner === true,
+      state_time_s: toNum(status.miner_state_time),
       state,
       nominal_ths: chainIdeal > 0 ? chainIdeal / 1000 : toNum(miner.hr_nominal) ? ghsToThs(miner.hr_nominal) : null,
       pool: toStr(userPools.find((p) => p.status === 'active')?.url),
@@ -228,6 +281,39 @@ export const vnishDriver: MinerDriver = {
       })),
     };
     return m;
+  },
+
+  async tuningInfo(t, timeoutMs) {
+    const offsetMin = await tzOffsetMin(t, timeoutMs);
+    const res = await fetch(`http://${t.ip}:${t.port}${BASE}/logs/autotune`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) throw new Error(`logs/autotune: HTTP ${res.status}`);
+    const parsed = parseAutotuneLog(await res.text(), offsetMin);
+
+    // Selected preset + whether it is tuned: needs the API key (settings / presets are protected)
+    let preset: string | null = null;
+    let presetPretty: string | null = null;
+    let presetTuned: boolean | null = null;
+    let apiAccess: boolean | null = null;
+    if (config.vnish.apiKey || config.vnish.password) {
+      try {
+        const headers = await authHeaders(t, timeoutMs);
+        const [settings, presets] = await Promise.all([
+          fetch(`http://${t.ip}:${t.port}${BASE}/settings`, { headers, signal: AbortSignal.timeout(timeoutMs) }).then((r) => {
+            apiAccess = r.status !== 401 && r.status !== 403;
+            return r.ok ? r.json() : null;
+          }),
+          fetch(`http://${t.ip}:${t.port}${BASE}/autotune/presets`, { headers, signal: AbortSignal.timeout(timeoutMs) }).then((r) => (r.ok ? r.json() : null)),
+        ]);
+        preset = toStr(obj(obj(obj(settings).miner).overclock).preset);
+        const item = arr(presets).find((p) => toStr(p.name) === preset);
+        presetPretty = toStr(item?.pretty) ?? preset;
+        presetTuned = item ? item.status === 'tuned' : null;
+      } catch (err) {
+        // wrong password -> unlock fails with 403
+        if (/wrong password|HTTP 40[13]/i.test(String((err as Error)?.message))) apiAccess = false;
+      }
+    }
+    return { preset, presetPretty, presetTuned, apiAccess, ...parsed };
   },
 
   async recentEvents(t, timeoutMs) {

@@ -14,7 +14,7 @@ import { errorMessage, sleep } from '../util/async.js';
 import { HttpError } from '../util/http-error.js';
 import { evaluateHealth, type Health, type HealthSnapshot } from '../health/health.js';
 import { requiredFlow } from '../health/coolant.js';
-import type { FirmwareEvent, MinerDetails } from '../miners/types.js';
+import type { FirmwareEvent, MinerDetails, TuningInfo } from '../miners/types.js';
 
 const log = createLogger('devices');
 
@@ -51,6 +51,16 @@ export class DeviceService {
   private readonly fwEvents = new Map<string, DeviceEvent[]>();
   /** Last coolant flow estimate taken while mining. */
   private readonly lastFlow = new Map<string, { lpm: number; at: Date }>();
+  /** Auto-tuning profile / progress (read from the miner's tuner log). */
+  private readonly tuning = new Map<string, TuningInfo>();
+
+  setTuning(id: string, info: TuningInfo): void {
+    this.tuning.set(id, info);
+  }
+
+  snapshotState(id: string): string | null {
+    return this.latest.get(id)?.details?.state ?? null;
+  }
   private readonly relays: RelayController;
   private readonly relayStates = new Map<string, boolean>();
 
@@ -132,6 +142,7 @@ export class DeviceService {
         // Only hydro miners (reporting water temperatures) have a coolant flow requirement
         requiredFlow: d.capabilities.includes('water_in_c') ? requiredFlow(d.model, this.cfg.coolant) : undefined,
         lastFlow: this.lastFlow.get(d.id) ?? null,
+        tuning: this.tuning.get(d.id) ?? null,
       },
       this.cfg.alerts,
       this.cfg.poll.intervalMs,
@@ -156,6 +167,7 @@ export class DeviceService {
       ...d,
       commands: [...(driver?.commands ?? []), ...(d.relay ? ['power_cycle', 'relay_on', 'relay_off'] : [])],
       latest: this.latest.get(d.id) ?? null,
+      tuning: this.tuning.get(d.id) ?? null,
       health: this.health(d),
     };
   }

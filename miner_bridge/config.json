@@ -1,6 +1,6 @@
 {
   "name": "Miner Bridge",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "slug": "miner_bridge",
   "description": "ASIC miner monitoring & control: discovery, health, coolant flow, TimescaleDB history, MQTT for Home Assistant",
   "url": "https://github.com/VersloValdymas/Minning",
@@ -77,6 +77,8 @@
     "fw_log_interval_s": "int(15,3600)?",
     "fw_event_window_h": "int(1,168)?",
     "standby_power_w": "int(0,1000)?",
-    "vnish_password": "password?"
+    "vnish_password": "password?",
+    "tuning_warn_h": "int(1,168)?",
+    "tuning_interruptions_warn": "int(1,100)?"
   }
 }

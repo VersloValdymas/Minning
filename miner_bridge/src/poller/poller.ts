@@ -167,9 +167,37 @@ export class Poller {
    * Firmware protection trips (overheat, chain break) happen and recover within seconds - between our
    * polls. Reading the miner's own log is the only way to see them. Runs every firmwareLog.intervalMs.
    */
+  private readonly lastTuningRead = new Map<string, number>();
+
+  /** Re-read tuning / API access for all miners in the next cycle (e.g. after keys were added). */
+  forceTuningRead(): void {
+    this.lastTuningRead.clear();
+    this.lastFirmwareRead = 0;
+  }
+
+  /** Auto-tuning progress: each firmware-log cycle while tuning, every 10 min otherwise (preset / tuned state). */
+  private async readTuning(reachable: DeviceRow[]): Promise<void> {
+    const now = Date.now();
+    const targets = reachable.filter((d) => {
+      if (!getDriver(d.driver)?.tuningInfo) return false;
+      const tuning = this.devices.snapshotState(d.id) === 'auto-tuning';
+      return tuning || now - (this.lastTuningRead.get(d.id) ?? 0) > 600_000;
+    });
+    await mapLimit(targets, 5, async (d) => {
+      try {
+        const info = await getDriver(d.driver)!.tuningInfo!({ ip: d.ip, port: d.port }, this.cfg.poll.timeoutMs * 2);
+        this.devices.setTuning(d.id, info);
+        this.lastTuningRead.set(d.id, now);
+      } catch (err) {
+        log.debug(`${d.ip}: tuning info read failed: ${errorMessage(err)}`);
+      }
+    });
+  }
+
   private async readFirmwareLogs(reachable: DeviceRow[]): Promise<void> {
     if (Date.now() - this.lastFirmwareRead < this.cfg.firmwareLog.intervalMs) return;
     this.lastFirmwareRead = Date.now();
+    await this.readTuning(reachable);
     const targets = reachable.filter((d) => getDriver(d.driver)?.recentEvents);
     await mapLimit(targets, 5, async (d) => {
       try {

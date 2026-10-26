@@ -171,6 +171,7 @@ const FILTERS = [
   { key: 'tuning', label: 'Autotuning', test: (d) => d.active && stateOf(d) === 'auto-tuning' },
   { key: 'starting', label: 'Kraunasi', test: (d) => d.active && !isOfflineish(d) && STARTING_STATES.includes(stateOf(d)) },
   { key: 'ok', label: 'Tvarkingos', test: (d) => d.health.level === 'ok' },
+  { key: 'noaccess', label: 'Be valdymo', test: (d) => d.tuning?.apiAccess === false },
   { key: 'disabled', label: 'Išjungtos', test: (d) => d.health.level === 'disabled' },
 ];
 
@@ -515,7 +516,7 @@ function minerCard(d) {
     ${d.commands.includes('start') && isStopped(d) ? `<div class="quick"><span class="muted small">Kasimas sustabdytas</span><button class="btn primary small-btn" data-quick="start">▶ Paleisti kasimą</button></div>` : ''}
     ${problems.length ? `<ul class="m-issues">${problems.map((i) => `<li>${statusIcon(i.level)}${esc(i.text)}</li>`).join('')}</ul>` : ''}
     <div class="m-foot">
-      <span title="Laikas kasimo būsenoje">⏱ ${off ? ago(d.last_seen) : duration(m.uptime_s)}</span>
+      ${isTuning(d) ? `<span title="Autotuning trukmė">⟳ derina ${tuningSeconds(d) == null ? '–' : duration(Math.round(tuningSeconds(d)))}</span>` : `<span title="Laikas kasimo būsenoje">⏱ ${off ? ago(d.last_seen) : duration(m.uptime_s)}</span>`}
       ${det?.pool ? `<span title="${esc(det.pool)}">⛁ ${esc(poolHost(det.pool))}</span>` : ''}
       ${hydro && h.reject_pct !== null ? `<span title="Atmesti share'ai">atm. ${nf(h.reject_pct, 2)} %</span>` : ''}
       <span>${esc(d.firmware ?? d.driver)}</span>
@@ -523,8 +524,112 @@ function minerCard(d) {
   </article>`;
 }
 
+// ---------------------------------------------------------------- auto-tuning
+const isTuning = (d) => stateOf(d) === 'auto-tuning';
+const presetShort = (p) => (p ? p.replace(' watt ~ ', ' W ≈ ').replace(/ TH$/, ' TH/s') : '–');
+
+/** Seconds the current tuning session has been running. */
+function tuningSeconds(d) {
+  const t = d.tuning;
+  if (t?.sessionStartedAt) return (Date.now() - new Date(t.sessionStartedAt).getTime()) / 1000;
+  return detailsOf(d)?.state_time_s ?? null;
+}
+
+/** Generic explanation (overview banner and drawer). */
+const TUNING_WHAT = `Kasyklos firmware (Vnish) derina kiekvieną lustą pasirinktam galios profiliui (pvz. „5940 W ≈ 396 TH/s“):
+  ieško didžiausio stabilaus dažnio ir tinkamos įtampos. Tuo metu kasykla <b>kasa</b>, bet pasiekia tik ~85–97 % tikslo, galia svyruoja.
+  Baigusi profilį išsaugo (būsena „Kasa“), o vėlesni perkrovimai jį naudoja iš karto – derinti iš naujo nebereikia.`;
+
+const TUNING_DO = [
+  '<b>Leiskite dirbti be pertraukų.</b> Nespauskite Restart / Reboot / Power cycle ir nekeiskite profilio – kiekvienas nutraukimas derinimą pratęsia (tęsiama nuo išsaugotos vietos, bet kiekvienas startas vėl užtrunka).',
+  '<b>Užtikrinkite stabilų maitinimą ir aušinimą</b> – kad kasykla neperkaistų ir nepersikrautų pati.',
+  '<b>Pirmas profilio derinimas paprastai trunka 2–8 h.</b> Ilgiau nei ~12 h – žr. „Į ką atkreipti dėmesį“.',
+];
+
+/** Live checks that typically keep tuning from finishing. Returns [{level, text}] */
+function tuningChecks(d) {
+  const t = T(), m = metricsOf(d), h = d.health, tn = d.tuning, out = [];
+  const f = flowInfo(d);
+  if (f.v !== null && f.req) {
+    out.push(f.v < f.req
+      ? { level: 'crit', text: `Aušinimo debitas ${nf(f.v, 1)} l/min < privalomo ${nf(f.req, 0)} l/min – derinimas su aukštu profiliu gali baigtis perkaitimu. Patikrinkite šakos ventilius, žarnas, oro kamštį.` }
+      : { level: 'ok', text: `Aušinimo debitas pakankamas (${nf(f.v, 1)} / ${nf(f.req, 0)} l/min).` });
+  }
+  if (m.temp_max_c != null) {
+    out.push(m.temp_max_c >= t.tempWarnC
+      ? { level: 'warn', text: `Lustai ${nf(m.temp_max_c, 0)} °C – arti ribos; derinant galia kyla, todėl verta pagerinti aušinimą.` }
+      : { level: 'ok', text: `Lustų temperatūra normali (${nf(m.temp_max_c, 0)} °C).` });
+  }
+  if (m.water_out_c != null && m.water_out_c >= t.waterOutWarnC) {
+    out.push({ level: 'warn', text: `Vanduo išėjime ${nf(m.water_out_c, 1)} °C – kontūras šyla; patikrinkite siurblį ir sausuosius aušintuvus.` });
+  }
+  if (tn && tn.presetTuned !== true && tn.interruptions >= (t.tuningInterruptionsWarn ?? 3)) {
+    out.push({ level: 'warn', text: `Derinimas jau nutrauktas ${tn.interruptions}× (perkrovimai / maitinimo dingimai)${tn.lastFinishedAt ? `, paskutinis sėkmingas – ${new Date(tn.lastFinishedAt).toLocaleDateString('lt-LT')}` : ''}. Išsiaiškinkite, kas perkrauna kasyklą (relė, automatizacija, elektros tiekimas, perkaitimas).` });
+  }
+  const weak = tn?.progress?.chains.filter((c) => c.pct < 85) ?? [];
+  const long = (tuningSeconds(d) ?? 0) > 4 * 3600;
+  if (weak.length && long) {
+    out.push({ level: 'warn', text: `Grandinė(-ės) ${weak.map((c) => 'G' + c.id + ' ' + Math.round(c.pct) + '%').join(', ')} po kelių valandų vis dar toli nuo tikslo – silpni lustai. Svarstykite žemesnį profilį (pvz. 1–2 žingsniais mažiau).` });
+  }
+  if (tn?.badChips > 0) {
+    out.push({ level: 'warn', text: `Paskutiniame derinimo rate ${tn.badChips} lustai pažymėti kaip blogi – hashrate bus mažesnis; jei daugėja, hash board'ą verta patikrinti.` });
+  }
+  if ((tuningSeconds(d) ?? 0) > (t.tuningWarnH ?? 12) * 3600) {
+    out.push({ level: 'warn', text: `Derinama ilgiau nei ${t.tuningWarnH ?? 12} h. Vnish sąsajoje peržiūrėkite Logs → Autotune; jei procentai nekyla, pasirinkite žemesnį profilį.` });
+  }
+  return out;
+}
+
+/** Drawer section for a tuning miner (or one whose preset is not tuned yet). */
+function tuningPanel(d) {
+  const tn = d.tuning, secs = tuningSeconds(d);
+  const tuning = isTuning(d);
+  if (!tuning && !(tn && tn.presetTuned === false)) return '';
+  const chains = tn?.progress?.chains ?? [];
+  const checks = tuning ? tuningChecks(d) : [];
+  return `<div class="card-title">${statusIcon('info')} Autotuning – ${tuning ? 'vyksta derinimas' : 'profilis dar nesuderintas'}</div>
+    <p class="muted small">${TUNING_WHAT}</p>
+    <div class="d-kpis">
+      ${statBox('Profilis', esc(presetShort(tn?.presetPretty)))}
+      ${statBox('Būsena', tn?.presetTuned ? '✓ suderintas' : 'nesuderintas')}
+      ${tuning ? statBox('Trukmė', secs == null ? '–' : duration(Math.round(secs))) : ''}
+      ${tuning && tn ? statBox('Derinimo ratai', `${tn.rounds} (~5 min)`) : ''}
+      ${tn ? statBox('Nutraukta', `${tn.interruptions}×`, tn.interruptions >= (T().tuningInterruptionsWarn ?? 3) ? 'warn' : '') : ''}
+      ${tn?.progress?.voltageMv ? statBox('Įtampa', `${nf(tn.progress.voltageMv / 1000, 2)} V`) : ''}
+    </div>
+    ${chains.length ? `<div class="tune-chains">${chains.map((c) => `<div class="chain"><div class="l"><span>G${c.id}</span><b>${nf(c.pct, 1)} %</b></div><div class="bar"><i class="${c.pct < 85 ? 'warn' : ''}" style="width:${Math.min(100, c.pct)}%"></i></div></div>`).join('')}</div>
+      <p class="muted small">Grandinių hashrate nuo profilio tikslo paskutiniame rate (${ago(tn.progress.at)}). Derinimas baigiasi, kai visos grandinės stabiliai pasiekia tikslą.</p>` : ''}
+    ${tuning ? `<div class="tune-cols">
+      <div><div class="tune-h">Ką daryti, kad derinimas baigtųsi</div><ul class="tune-list">${TUNING_DO.map((x) => `<li>${x}</li>`).join('')}</ul></div>
+      <div><div class="tune-h">Į ką atkreipti dėmesį</div><ul class="m-issues">${checks.map((c) => `<li>${statusIcon(c.level)}<span>${esc(c.text)}</span></li>`).join('') || '<li class="muted">Kliūčių nematyti.</li>'}</ul></div>
+    </div>` : '<p class="small">Kasykla dirba, bet pasirinktas profilis dar nebaigtas derinti – po kito starto derinimas tęsis.</p>'}`;
+}
+
+/** Overview banner while miners are tuning. */
+function renderTuningBanner() {
+  const tuning = state.devices.filter((d) => d.active && isTuning(d));
+  const el = $('#tuning-banner');
+  if (!tuning.length) { el.hidden = true; return; }
+  const secs = tuning.map(tuningSeconds).filter((x) => x != null);
+  const longest = secs.length ? Math.max(...secs) : null;
+  const problems = tuning.filter((d) => d.health.issues.some((i) => i.code === 'tuning_long' || i.code === 'tuning_interrupted')).length;
+  el.hidden = false;
+  el.innerHTML = `<div class="tb-main">
+      ${statusIcon('info')}
+      <div><b>${tuning.length} kasykl. derina profilį (autotuning)</b> – tai normalu po starto ar profilio pakeitimo; jos kasa, tik dar ne visu pajėgumu.
+        <span class="muted">Ilgiausiai derina: ${longest == null ? '–' : duration(Math.round(longest))}${problems ? ` · <b>${problems} su įspėjimais</b>` : ''}.</span></div>
+      <div class="tb-actions"><button type="button" class="btn small-btn" data-tb="filter">Rodyti</button><button type="button" class="btn small-btn" data-tb="help">Kas tai?</button></div>
+    </div>
+    <div class="tb-help" hidden>
+      <p class="small">${TUNING_WHAT}</p>
+      <ul class="tune-list small">${TUNING_DO.map((x) => `<li>${x}</li>`).join('')}</ul>
+      <p class="small muted">Paspaudę kasyklą matysite jos derinimo progresą ir konkrečius patarimus.</p>
+    </div>`;
+}
+
 function renderGrid() {
   const list = visibleDevices();
+  renderTuningBanner();
   $('#miner-grid').innerHTML = list.map(minerCard).join('');
   $('#empty-state').hidden = state.devices.length > 0;
 }
@@ -561,6 +666,13 @@ const COLUMNS = [
   { key: 'loc', label: 'Vieta', sort: (d) => (d.rack ? d.rack * 10000 + d.shelf * 100 + d.slot : 1e9), html: (d) => esc(locCode(d) || '–') },
   { key: 'ip', label: 'IP', sort: (d) => d.ip.split('.').reduce((s, o) => s * 256 + Number(o), 0), html: (d) => esc(d.ip) },
   { key: 'model', label: 'Modelis', sort: (d) => d.model ?? '', html: (d) => esc(shortModel(d.model)) },
+  {
+    key: 'preset',
+    label: 'Profilis',
+    sort: (d) => Number(d.tuning?.preset) || 0,
+    html: (d) => (d.tuning?.presetPretty ? `${esc(presetShort(d.tuning.presetPretty))} ${d.tuning.presetTuned ? '<span title="Suderintas">✓</span>' : '<span title="Nesuderintas">⟳</span>'}` : '–'),
+    cls: (d) => (d.tuning?.preset && commonPreset() && d.tuning.preset !== commonPreset() ? 'warn' : ''),
+  },
   { key: 'hr', label: 'TH/s', num: true, sort: (d) => metricsOf(d).hashrate_ths, html: (d) => nf(metricsOf(d).hashrate_ths, 1) },
   { key: 'pct', label: '% nom.', num: true, sort: (d) => d.health.hashrate_pct, html: (d) => nf(d.health.hashrate_pct, 1), cls: (d) => tcls(d.health.hashrate_pct, T().hashrateWarnPct, T().hashrateCritPct, false) },
   { key: 'pw', label: 'Galia W', num: true, sort: (d) => metricsOf(d).power_w, html: (d) => (metricsOf(d).power_w == null ? esc(powerText(d, 'W')) : `${detailsOf(d)?.power_source === 'estimated' ? '≈ ' : ''}${nf(metricsOf(d).power_w, 0)}`) },
@@ -575,7 +687,18 @@ const COLUMNS = [
   { key: 'issues', label: 'Problemos', sort: (d) => d.health.issues.length, html: (d) => esc(d.health.issues.filter((i) => i.level !== 'info').map((i) => i.text).join(' · ')), tdClass: 'issues' },
 ];
 
+/** Most common preset in the fleet (deviations are highlighted). */
+let commonPresetCache = null;
+function commonPreset() {
+  if (commonPresetCache !== null) return commonPresetCache;
+  const counts = {};
+  for (const d of state.devices) if (d.tuning?.preset) counts[d.tuning.preset] = (counts[d.tuning.preset] ?? 0) + 1;
+  commonPresetCache = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  return commonPresetCache;
+}
+
 function renderTable() {
+  commonPresetCache = null;
   const { key, dir } = state.tableSort;
   $('#table-head').innerHTML = `<tr>${COLUMNS.map(
     (c) => `<th class="${c.num ? 'num' : ''}" data-key="${c.key}" aria-sort="${c.key === key ? (dir > 0 ? 'ascending' : 'descending') : 'none'}">${c.label}${c.key === key ? (dir > 0 ? ' ▲' : ' ▼') : ''}</th>`,
@@ -938,6 +1061,7 @@ function renderDrawer(full = false) {
     $('#drawer-body').innerHTML = `
       <div class="actions" id="d-actions"></div>
       <div class="card" id="d-issues"></div>
+      <div class="card tune-card" id="d-tuning" hidden></div>
       <div class="d-kpis" id="d-kpis"></div>
       <div class="d-charts">
         <div class="card"><div class="card-title">Hashrate, TH/s</div><div class="chart" id="dc-hr"></div></div>
@@ -964,6 +1088,9 @@ function renderDrawer(full = false) {
     `<button class="btn" data-act="place">Vieta…</button><button class="btn" data-act="rename">Pervadinti</button><button class="btn" data-act="relay">Relė…</button>` +
     `<button class="btn" data-act="toggle">${d.active ? 'Išjungti stebėjimą' : 'Įjungti stebėjimą'}</button><button class="btn danger" data-act="delete">Pašalinti</button>`;
 
+  const tp = tuningPanel(d);
+  $('#d-tuning').hidden = !tp;
+  $('#d-tuning').innerHTML = tp;
   $('#d-issues').innerHTML = h.issues.length
     ? `<div class="card-title">Būklė</div><ul class="m-issues">${h.issues.map((i) => `<li>${statusIcon(i.level)}${esc(i.text)}</li>`).join('')}</ul>`
     : `<div class="card-title">Būklė</div><div style="color:var(--good-ink)">✓ Problemų nerasta</div>`;
@@ -1001,6 +1128,7 @@ function renderDrawer(full = false) {
     <tr><th>ID</th><td>${esc(d.id)}</td></tr>
     <tr><th>MAC</th><td>${esc(d.mac ?? '–')}</td></tr>
     <tr><th>Protokolas</th><td>${esc(d.driver)} :${d.port}</td></tr>
+    <tr><th>Valdymo prieiga</th><td>${d.tuning?.apiAccess === true ? '✓ API raktas tinka' : d.tuning?.apiAccess === false ? '✕ API raktas netinka – sukurkite jį šioje kasykloje (Vnish → API keys)' : '–'}</td></tr>
     <tr><th>Pool</th><td>${esc(det?.pool ?? '–')}</td></tr>
     <tr><th>Relė</th><td>${d.relay ? esc(d.relay.type) : 'nesukonfigūruota'}</td></tr>
     <tr><th>Pirmą kartą rasta</th><td>${fullFmt.format(new Date(d.first_seen))}</td></tr>
@@ -1173,23 +1301,38 @@ async function previewCoolant() {
     const cur = state.settings?.derived ?? state.info?.coolant;
     const factor = cur ? (cur.cpJkgK * cur.densityKgL) / (next.cpJkgK * next.densityKgL) : 1;
     const req = readCoolantForm();
-    const rows = state.devices
+    const items = state.devices
       .filter((d) => d.capabilities?.includes('water_in_c'))
       .map((d) => {
         const f = flowInfo(d);
         const nv = f.v === null ? null : f.v * factor;
         const need = req.requiredLpm > 0 ? req.requiredLpm : f.req;
-        const bad = nv !== null && need && nv < need;
-        return `<tr><td>${esc(displayName(d))}</td><td class="num">${nf(f.v, 1)}</td><td class="num"><b>${nf(nv, 1)}</b></td><td class="num">${nf(need, 0)}</td><td>${nv === null ? '–' : bad ? `${statusIcon('crit')} per mažas` : `${statusIcon('ok')} pakankamas`}</td></tr>`;
+        return { d, cur: f.v, nv, need, bad: nv !== null && !!need && nv < need };
       })
-      .join('');
+      // problems first, then lowest flow
+      .sort((a, b) => Number(b.bad) - Number(a.bad) || (a.nv ?? 1e9) - (b.nv ?? 1e9));
+    const bad = items.filter((x) => x.bad);
+    const known = items.filter((x) => x.nv !== null);
+    const row = (x) => `<tr><td>${esc(displayName(x.d))}${x.d.rack ? ` <span class="muted">${esc(locCode(x.d))}</span>` : ''}</td><td class="num">${nf(x.cur, 1)}</td><td class="num"><b>${nf(x.nv, 1)}</b></td><td class="num">${nf(x.need, 0)}</td><td>${x.nv === null ? '–' : x.bad ? `${statusIcon('crit')} per mažas` : `${statusIcon('ok')} pakankamas`}</td></tr>`;
+    const head = '<thead><tr><th>Kasykla</th><th class="num">Dabar</th><th class="num">Bus</th><th class="num">Privaloma</th><th></th></tr></thead>';
+    const rows = items.length
+      ? `<div class="preview-summary">
+          <span class="badge">${statusIcon('ok')}${known.length - bad.length} pakankamas</span>
+          <span class="badge">${statusIcon(bad.length ? 'crit' : 'ok')}${bad.length} per mažas</span>
+          ${items.length - known.length ? `<span class="badge muted">${items.length - known.length} be duomenų</span>` : ''}
+        </div>
+        ${bad.length ? `<table class="preview-table">${head}<tbody>${bad.map(row).join('')}</tbody></table>` : ''}
+        <details class="preview-all"><summary>Visos kasyklos (${items.length})</summary>
+          <div class="scroll-box"><table class="preview-table">${head}<tbody>${items.map(row).join('')}</tbody></table></div>
+        </details>`
+      : '';
     $('#coolant-preview').innerHTML = `
       <div class="preview-props">
         ${statBox('Šiluminė talpa', `${nf(next.cpJkgK, 0)} J/(kg·K)`)}
         ${statBox('Tankis', `${nf(next.densityKgL, 3)} kg/l`)}
       </div>
       <p>Debito įverčiai keisis <b>${factor >= 1 ? '+' : ''}${nf((factor - 1) * 100, 1)} %</b> (dabar: ${esc(cur?.label ?? '?')}).</p>
-      ${rows ? `<table class="preview-table"><thead><tr><th>Kasykla</th><th class="num">Dabar</th><th class="num">Bus</th><th class="num">Privaloma</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<p>Hydro kasyklų su debito duomenimis dar nėra.</p>'}`;
+      ${rows || '<p>Hydro kasyklų su debito duomenimis dar nėra.</p>'}`;
   } catch (e) {
     $('#coolant-preview').textContent = e.message;
   }
@@ -1224,6 +1367,42 @@ async function resetCoolant() {
     await previewCoolant();
   } catch (e) {
     toast(e.message, true);
+  }
+}
+
+// ---------------------------------------------------------------- settings (control access)
+function renderAccessCard() {
+  const active = state.devices.filter((d) => d.active && d.driver === 'vnish');
+  const ok = active.filter((d) => d.tuning?.apiAccess === true);
+  const no = active.filter((d) => d.tuning?.apiAccess === false).sort((a, b) => (a.rack ?? 99) - (b.rack ?? 99) || cmpIp(a, b));
+  const unknown = active.length - ok.length - no.length;
+  const keySet = state.info?.vnishAuth;
+  $('#access-summary').innerHTML = `
+    <span class="badge">${statusIcon('ok')}${ok.length} valdomos</span>
+    <span class="badge">${statusIcon(no.length ? 'warn' : 'ok')}${no.length} be prieigos</span>
+    ${unknown ? `<span class="badge muted">${unknown} dar netikrinta</span>` : ''}
+    ${keySet === false ? `<span class="badge">${statusIcon('crit')} API raktas nenurodytas add-on'o nustatymuose</span>` : ''}`;
+  $('#access-list').innerHTML = no.length
+    ? `<details class="preview-all" open><summary>Kasyklos be valdymo prieigos (${no.length})</summary>
+        <div class="scroll-box"><table class="preview-table">
+          <thead><tr><th>Kasykla</th><th>Vieta</th><th>IP</th><th></th></tr></thead>
+          <tbody>${no.map((d) => `<tr><td>${esc(displayName(d))}</td><td>${esc(locCode(d) || '–')}</td><td>${esc(d.ip)}</td><td><a href="http://${esc(d.ip)}" target="_blank" rel="noopener">Atidaryti Vnish ↗</a></td></tr>`).join('')}</tbody>
+        </table></div>
+        <p class="small muted">IP sąrašas: <code>${no.map((d) => esc(d.ip)).join(', ')}</code></p>
+      </details>`
+    : '<p class="small" style="color:var(--good-ink)">✓ Visos patikrintos kasyklos priima API raktą.</p>';
+}
+
+async function recheckAccess(btn) {
+  btn.disabled = true;
+  try {
+    await api('fleet/recheck', { method: 'POST' });
+    toast('Tikrinama… rezultatai atsinaujins per ~1 min.');
+    setTimeout(() => loadDevices().then(renderAccessCard), 70_000);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    setTimeout(() => (btn.disabled = false), 5000);
   }
 }
 
@@ -1278,6 +1457,7 @@ function renderAll() {
   if (state.tab === 'table') renderTable();
   if (state.tab === 'heatmap') renderHeatmap();
   if (state.tab === 'site') renderSite();
+  if (state.tab === 'settings') renderAccessCard();
   if (state.drawerId) renderDrawer(false);
 }
 
@@ -1287,7 +1467,7 @@ function setTab(tab) {
   $$('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   $$('.tab-panel').forEach((p) => (p.hidden = p.dataset.panel !== tab));
   if (tab === 'events') renderEvents();
-  if (tab === 'settings') { loadSettings(); renderLayoutEditor(); }
+  if (tab === 'settings') { loadSettings(); renderLayoutEditor(); renderAccessCard(); }
   renderAll();
 }
 
@@ -1377,6 +1557,17 @@ function wire() {
     store.set('theme', next);
     renderAll();
     for (const [el, o] of charts) drawChart(el, o);
+  });
+  $('#tuning-banner').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tb]');
+    if (!b) return;
+    if (b.dataset.tb === 'help') {
+      const help = $('#tuning-banner .tb-help');
+      help.hidden = !help.hidden;
+    } else {
+      state.statusFilter = 'tuning';
+      renderAll();
+    }
   });
   $('#kpis').addEventListener('click', (e) => {
     if (!e.target.closest('.kpi-link')) return;
@@ -1519,6 +1710,7 @@ function wire() {
     renderLayoutEditor();
   });
   $('#layout-save').addEventListener('click', saveLayout);
+  $('#access-recheck').addEventListener('click', (e) => recheckAccess(e.currentTarget));
   $('#coolant-form').addEventListener('input', schedulePreview);
   $('#coolant-form').addEventListener('submit', saveCoolant);
   $('#coolant-reset').addEventListener('click', resetCoolant);

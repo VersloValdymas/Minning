@@ -18,10 +18,27 @@ function arg(name: string): string | undefined {
 }
 const flag = (name: string) => process.argv.includes(`--${name}`);
 
-if (!fs.existsSync(privPath)) {
-  console.error(`Private key not found: ${privPath}\nRun  npm run license:genkeys  first.`);
-  process.exit(1);
+/**
+ * Private key source, in order:
+ *   --key-stdin : read the PEM from stdin (Issue-License.cmd pipes it from the clipboard / KeePass; never on disk)
+ *   else        : tools/.license-private.pem file
+ */
+function loadPrivateKey(): string {
+  if (flag('key-stdin')) {
+    const key = fs.readFileSync(0, 'utf8').trim();
+    if (!key.includes('PRIVATE KEY')) {
+      console.error('Privataus rakto nerasta iškarpinėje. Nukopijuokite visą raktą (nuo -----BEGIN iki -----END-----) ir bandykite iš naujo.');
+      process.exit(1);
+    }
+    return key;
+  }
+  if (!fs.existsSync(privPath)) {
+    console.error(`Private key not found: ${privPath}\nRun  npm run license:genkeys  first, or pass --key-stdin.`);
+    process.exit(1);
+  }
+  return fs.readFileSync(privPath, 'utf8');
 }
+const privateKeyPem = loadPrivateKey();
 
 const cust = arg('cust');
 const id = arg('id');
@@ -42,7 +59,13 @@ const payload: LicensePayload = {
   max_miners: arg('max-miners') ? Number(arg('max-miners')) : null,
 };
 
-const token = signLicense(payload, fs.readFileSync(privPath, 'utf8'));
+let token: string;
+try {
+  token = signLicense(payload, privateKeyPem);
+} catch {
+  console.error('Netinkamas privatus raktas (nepavyko pasirašyti). Patikrinkite, ar nukopijavote visą teisingą raktą.');
+  process.exit(1);
+}
 
 console.log('License issued:');
 console.log(`  customer : ${payload.cust} (${payload.id})`);

@@ -1,9 +1,10 @@
 @echo off
 rem ============================================================
 rem  Miner Bridge - licencijos issrasymas
-rem  Dukart spustelekite si faila. Paklaus duomenu ir issiras
-rem  licencijos rakta (issaugo i licenses\ ir nukopijuoja i iskarpine).
-rem  Reikia: Node.js + sugeneruotas privatus raktas (npm run license:genkeys).
+rem  Dukart spustelekite si faila. Paklaus duomenu, paprasys is KeePass
+rem  nukopijuoti privatu rakta (i iskarpine), issiras licencija ir ja
+rem  nukopijuos i iskarpine. Privatus raktas niekur neirasomas i diska.
+rem  Reikia: Node.js. Privataus rakto failo diske NEREIKIA.
 rem ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
@@ -19,14 +20,6 @@ echo.
 where node >nul 2>nul
 if errorlevel 1 (
   echo  [KLAIDA] Nerastas Node.js. Idiekite ji is https://nodejs.org
-  echo.
-  pause
-  exit /b 1
-)
-
-if not exist "tools\.license-private.pem" (
-  echo  [KLAIDA] Nerastas privatus raktas: tools\.license-private.pem
-  echo  Pirma viena karta paleiskite komanda:  npm run license:genkeys
   echo.
   pause
   exit /b 1
@@ -64,23 +57,33 @@ for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do 
 set "OUTFILE=licenses/!ID!_!TODAY!.txt"
 
 echo.
+echo  ------------------------------------------------
+echo   Atidarykite KeePass ir NUKOPIJUOKITE privatu rakta
+echo   ^(visa teksta nuo -----BEGIN iki -----END PRIVATE KEY-----^).
+echo  ------------------------------------------------
+echo.
+pause
+
+echo.
 echo  Issrasoma licencija...
 echo.
-node --import tsx "tools/issue-license.ts" --cust "!CUST!" --id "!ID!" --days !DAYS!!EXTRA! --out "!OUTFILE!"
+powershell -NoProfile -Command "Get-Clipboard -Raw" | node --import tsx "tools/issue-license.ts" --key-stdin --cust "!CUST!" --id "!ID!" --days !DAYS!!EXTRA! --out "!OUTFILE!"
 if errorlevel 1 (
   echo.
-  echo  [KLAIDA] Nepavyko issrasyti licencijos.
+  echo  [KLAIDA] Nepavyko issrasyti licencijos ^(ar nukopijavote teisinga rakta?^).
   echo.
   pause
   exit /b 1
 )
 
 if exist "!OUTFILE!" (
+  rem Perrasom iskarpine licencija - taip privatus raktas is iskarpines dingsta
   clip < "!OUTFILE!"
   echo.
   echo  ------------------------------------------------
   echo   Licencija issaugota: !OUTFILE!
-  echo   Raktas nukopijuotas i iskarpine ^(Ctrl+V^).
+  echo   Licencijos raktas nukopijuotas i iskarpine ^(Ctrl+V^).
+  echo   ^(Privatus raktas is iskarpines pasalintas.^)
   echo   Iklijuokite HA uzrakto lange arba
   echo   Configuration -^> license_key.
   echo  ------------------------------------------------
